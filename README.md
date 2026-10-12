@@ -71,10 +71,14 @@ A HINTS+ lépésben minden vizsgálat alatt egy „Hogyan néz ki?” gomb anim�
 hallásvizsgálat, Romberg-próba, Bárány-féle mutatópróba, vakjárás. Ugyanezek a Referencia fülön is megtalálhatók.
 Szemből nézett ábrákon a beteg jobb oldala a kép bal oldalán van.
 
-## Epikrízis-minta
+## Dokumentáció az SBO ambuláns lapba
 
-Az Összegzés lépés az SBO ambuláns lapba másolható epikrízist készít (`js/epicrisis.js`): anamnézis, primer
-vizsgálat (vitális értékek, EKG, labor), a kategória szerinti vestibularis vizsgálat, értelmezés, diszpozíció,
-munkadiagnózis, BNO-javaslat (ellenőrizendő) és Javaslat (hazaadott terápia, manőverek, kontroll, mikor jöjjön vissza).
-Csak a megadott adatokból következő állítások kerülnek bele; ami hiányzik, ott `___` kitöltendő hely marad.
-A szöveg az appban szerkeszthető, majd egy gombbal másolható.
+Az Összegzés lépés a lap mezőinek megfelelően, **részenként másolható** szöveget készít (`js/epicrisis.js`):
+Jelen panasz, Status (paraméterek, EKG, labor), Neurológiai status (vestibularis vizsgálat), Epikrízis,
+Diagnózis (BNO-javaslattal, ellenőrizendő), Javaslat. A megfogalmazás az osztályon használt dokumentációs
+fordulatokat követi („A fentebb részletezett anamnézisű beteget … vizsgáltuk ambulanciánkon”, „… negál”,
+„Mko. Dix-Hallpike-manőver negatív”, „javaslatokkal ellátva otthonába emittáljuk”).
+
+Csak a megadott adatokból következő állítás kerül bele; „negál” csak kifejezett nemleges válasznál vagy a
+„nem jelölt tüneteket negálja” jelölésnél. Hiányzó adat helyén `___` kitöltendő hely marad. Minden rész
+szerkeszthető; a szerkesztett részt a további adatváltozás nem írja felül, az „Újragenerálás” igen.

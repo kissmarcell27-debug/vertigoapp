@@ -232,3 +232,7 @@ a { color: var(--accent); }
 
 textarea.report.epi { width: 100%; resize: vertical; color: var(--text); font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .form h3 + .note { margin-top: 0; }
+.epi-sec { margin-bottom: 12px; }
+.epi-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.epi-head .btn { margin-left: auto; }
+.btn.small { padding: 4px 10px; font-size: 13px; }

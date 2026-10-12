@@ -30,6 +30,7 @@
         { type: 'check', key: 'prim.vitals', label: 'Paraméterek: vérnyomás, pulzus, szaturáció' },
         { type: 'num2', keys: ['vit.sys', 'vit.dia'], label: 'Vérnyomás (Hgmm)', ph: ['szisztolés', 'diasztolés'] },
         { type: 'num2', keys: ['vit.hr', 'vit.spo2'], label: 'Pulzus (/perc) és SpO₂ (%)', ph: ['pulzus', 'SpO₂'] },
+        { type: 'num', key: 'vit.temp', label: 'Testhőmérséklet (°C)' },
         { type: 'check', key: 'prim.physical', label: 'Fizikális és neurológiai vizsgálat' },
         { type: 'check', key: 'prim.history', label: 'Releváns anamnézis' },
         { type: 'check', key: 'prim.vbg', label: 'Vénás vérgáz' },
@@ -64,6 +65,7 @@
         { type: 'check', key: 'rf.chestPain', label: 'Mellkasi fájdalom' },
         { type: 'check', key: 'rf.dyspnea', label: 'Dyspnoe' },
         { type: 'check', key: 'rf.syncope', label: 'Syncope' },
+        { type: 'check', key: 'rf.denyRest', label: 'A fenti listából a nem jelölt tüneteket a beteg kifejezetten negálja (így kerül a Jelen panaszba: „… negál”)' },
         { type: 'heading', label: 'Előzmények' },
         { type: 'check', key: 'pmh.stroke', label: 'Korábbi stroke' },
         { type: 'check', key: 'pmh.arrhythmia', label: 'Ritmuszavar' },
@@ -446,22 +448,30 @@
     return lines.join('\n');
   }
 
-  var epiEdited = false;
-  function epiText(r) { return window.VertigoEpicrisis.epicrisis(state, r, C); }
+  var epiEdits = {}; // részenként: a felhasználó által szerkesztett szöveg
+  function epiSections(r) { return window.VertigoEpicrisis.sections(state, r, C); }
 
   function renderSummary(r) {
-    var epi = document.getElementById('epi');
-    var epiVal = epiEdited && epi ? epi.value : epiText(r);
-    return '<label class="field"><span>Saját megjegyzés (bekerül a szövegbe)</span><textarea data-key="note" rows="2">' + esc(state.note) + '</textarea></label>' +
-      '<h3>Epikrízis-minta az SBO ambuláns lapba</h3>' +
-      '<div class="note info">A „___” helyeket töltse ki. A szöveg itt szerkeszthető; szerkesztés után a további adatváltozás nem írja felül (az „Újragenerálás” igen).</div>' +
-      '<div class="row gap"><button type="button" class="btn primary" data-copy="epi">Epikrízis másolása</button>' +
-      '<button type="button" class="btn" id="regenEpi">Újragenerálás az adatokból</button></div>' +
-      '<textarea id="epi" class="report epi" rows="22" spellcheck="false">' + esc(epiVal) + '</textarea>' +
-      '<h3>Strukturált összegzés (döntési út, SOP-hivatkozásokkal)</h3>' +
+    var secs = epiSections(r);
+    var html = '<label class="field"><span>Saját megjegyzés (a strukturált összegzésbe kerül)</span><textarea data-key="note" rows="2">' + esc(state.note) + '</textarea></label>' +
+      '<h3>Szöveg az SBO ambuláns lapba – részenként másolható</h3>' +
+      '<div class="note info">A „___” helyeket töltse ki. A szöveg itt szerkeszthető; a szerkesztett részt a további adatváltozás nem írja felül (az „Újragenerálás” igen). ' +
+      'Állítás csak a megadott adatokból kerül bele; „negál” csak kifejezett nemleges válasznál.</div>' +
+      '<div class="row gap"><button type="button" class="btn primary" data-copy-all="1">Minden rész másolása</button>' +
+      '<button type="button" class="btn" id="regenEpi">Újragenerálás az adatokból</button></div>';
+    html += secs.map(function (x) {
+      var v = epiEdits[x.id] !== undefined ? epiEdits[x.id] : x.text;
+      var rows = Math.min(14, Math.max(3, Math.ceil(v.length / 95) + (v.match(/\n/g) || []).length));
+      return '<div class="epi-sec"><div class="epi-head"><b>' + esc(x.title) + '</b>' +
+        (epiEdits[x.id] !== undefined ? ' <span class="ref">szerkesztve</span>' : '') +
+        '<button type="button" class="btn small" data-copy="epi-' + x.id + '">Másolás</button></div>' +
+        '<textarea id="epi-' + x.id + '" data-epi="' + x.id + '" class="report epi" rows="' + rows + '" spellcheck="false">' + esc(v) + '</textarea></div>';
+    }).join('');
+    html += '<h3>Strukturált összegzés (döntési út, SOP-hivatkozásokkal)</h3>' +
       '<div class="row gap"><button type="button" class="btn" data-copy="report">Összegzés másolása</button>' +
       '<button type="button" class="btn" onclick="window.print()">Nyomtatás</button></div>' +
       '<pre id="report" class="report">' + esc(reportText(r)) + '</pre>';
+    return html;
   }
 
   /* ---------------------------------------------------------------- */
@@ -556,8 +566,12 @@
     document.getElementById('panel').innerHTML = renderPanel(r);
     var rep = document.getElementById('report');
     if (rep) rep.textContent = reportText(r);
-    var epi = document.getElementById('epi');
-    if (epi && !epiEdited) epi.value = epiText(r);
+    if (document.querySelector('[data-epi]')) {
+      epiSections(r).forEach(function (x) {
+        var ta = document.getElementById('epi-' + x.id);
+        if (ta && epiEdits[x.id] === undefined) ta.value = x.text;
+      });
+    }
     var lo = document.querySelector('[data-live="orth"]');
     if (lo) lo.innerHTML = orthResult(r);
     var la = document.querySelector('[data-live="abcd2"]');
@@ -584,7 +598,7 @@
   });
 
   document.addEventListener('input', function (e) {
-    if (e.target.id === 'epi') { epiEdited = true; return; }
+    if (e.target.getAttribute && e.target.getAttribute('data-epi')) { epiEdits[e.target.getAttribute('data-epi')] = e.target.value; return; }
     var t = e.target, key = t.getAttribute && t.getAttribute('data-key');
     if (!key || (t.type !== 'text' && t.tagName !== 'TEXTAREA' && t.type !== 'number')) return;
     state[key] = t.value;
@@ -592,7 +606,7 @@
   });
 
   document.addEventListener('click', function (e) {
-    var t = e.target.closest ? e.target.closest('[data-goto],[data-clear],[data-goto-ref],[data-copy],#regenEpi,#viewExam,#viewRef,#reset') : null;
+    var t = e.target.closest ? e.target.closest('[data-goto],[data-clear],[data-goto-ref],[data-copy],[data-copy-all],#regenEpi,#viewExam,#viewRef,#reset') : null;
     if (!t) return;
     if (t.hasAttribute('data-goto')) { current = t.getAttribute('data-goto'); view = 'exam'; render(); window.scrollTo(0, 0); return; }
     if (t.hasAttribute('data-clear')) { delete state[t.getAttribute('data-clear')]; render(); return; }
@@ -600,17 +614,20 @@
     if (t.id === 'viewExam') { view = 'exam'; render(); return; }
     if (t.id === 'viewRef') { view = 'reference'; render(); return; }
     if (t.id === 'reset') {
-      if (confirm('Új beteg: minden megadott adat törlődik. Folytatja?')) { state = {}; epiEdited = false; current = 'stability'; view = 'exam'; render(); }
+      if (confirm('Új beteg: minden megadott adat törlődik. Folytatja?')) { state = {}; epiEdits = {}; current = 'stability'; view = 'exam'; render(); }
       return;
     }
-    if (t.id === 'regenEpi') {
-      epiEdited = false;
-      document.getElementById('epi').value = epiText(L.evaluate(state));
-      return;
-    }
-    if (t.hasAttribute('data-copy')) {
-      var src = document.getElementById(t.getAttribute('data-copy'));
-      var txt = src.tagName === 'TEXTAREA' ? src.value : src.textContent;
+    if (t.id === 'regenEpi') { epiEdits = {}; render(); return; }
+    if (t.hasAttribute('data-copy') || t.hasAttribute('data-copy-all')) {
+      var txt;
+      if (t.hasAttribute('data-copy-all')) {
+        txt = Array.prototype.map.call(document.querySelectorAll('[data-epi]'), function (ta) {
+          return ta.closest('.epi-sec').querySelector('b').textContent.toUpperCase() + ':\n' + ta.value;
+        }).join('\n\n');
+      } else {
+        var src = document.getElementById(t.getAttribute('data-copy'));
+        txt = src.tagName === 'TEXTAREA' ? src.value : src.textContent;
+      }
       var label = t.textContent;
       var done = function () { t.textContent = 'Másolva ✓'; setTimeout(function () { t.textContent = label; }, 1500); };
       if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(txt).then(done);

@@ -4,61 +4,84 @@ const L = require('../js/logic.js');
 const C = require('../js/content.js');
 const E = require('../js/epicrisis.js');
 
-const epi = (s) => E.epicrisis(s, L.evaluate(s), C);
+const secs = (s) => Object.fromEntries(E.sections(s, L.evaluate(s), C).map((x) => [x.id, x.text]));
 const stable = { unstable: 'no', focal: 'no', nonneuro: 'no' };
 
-test('perifériás AVS, hazabocsátás: epikrízis + javaslat + BNO', () => {
-  const s = {
-    ...stable, 'pt.age': '54', 'hx.onset': 'tegnap este', 'rf.nausea': true, 'rf.vomiting': true,
-    'vit.sys': '135', 'vit.dia': '82', 'vit.hr': '88', 'vit.spo2': '97',
-    continuous: 'yes', 'avs.trauma': 'no', 'avs.headache': 'no', 'avs.drug': 'no',
-    'hints.hit': 'saccade', 'hints.hitSide': 'left', 'hints.nyst': 'horiz_unidir', 'hints.nystDir': 'right', 'hints.nystGrade': 'II',
-    'hints.skew': 'neg', 'hints.hearing': 'none', 'stat.romberg': 'fall_left', 'avs.severe': 'no',
-    'rx.arlevert': true, 'dc.state': 'better',
-  };
-  const t = epi(s);
-  assert.match(t, /A 54 éves beteg szédülés miatt jelentkezett/);
-  assert.match(t, /hányinger és hányás/);
-  assert.match(t, /RR: 135\/82 Hgmm, P: 88\/perc, SpO2: 97%/);
-  assert.match(t, /korrekciós szakkád észlelhető a fej bal oldalra fordításakor/);
-  assert.match(t, /jobbra csapó, II\. fokú/);
-  assert.match(t, /harmonikus/);
-  assert.match(t, /vestibularis neuronitisnek/);
-  assert.match(t, /otthonába bocsátható/);
-  assert.match(t, /Arlevert/);
-  assert.match(t, /fül-orr-gégészeti kontroll/);
-  assert.match(t, /H81\.2/);
-  assert.match(t, /EKG: ___/); // nem megadott adat → kitöltendő
+const periphAvs = {
+  ...stable, 'hx.onset': 'tegnap este', 'rf.nausea': true, 'rf.vomiting': true, 'hx.hearing': 'no', 'hx.tinnitus': 'no', 'hx.trauma': 'no',
+  'vit.sys': '135', 'vit.dia': '82', 'vit.hr': '88', 'vit.spo2': '97',
+  continuous: 'yes', 'avs.trauma': 'no', 'avs.headache': 'no', 'avs.drug': 'no',
+  'hints.hit': 'saccade', 'hints.hitSide': 'left', 'hints.nyst': 'horiz_unidir', 'hints.nystDir': 'right', 'hints.nystGrade': 'II',
+  'hints.skew': 'neg', 'hints.hearing': 'none', 'stat.romberg': 'fall_left', 'avs.severe': 'no',
+  'rx.arlevert': true, 'dc.state': 'better',
+};
+
+test('perifériás AVS: részek az osztályos fordulatokkal', () => {
+  const x = secs(periphAvs);
+  assert.match(x.complaint, /Szédülés miatt jelentkezett, panaszai kezdete: tegnap este\./);
+  assert.match(x.complaint, /Hányinger és hányás kíséri\./);
+  assert.match(x.complaint, /Halláscsökkenést, fülzúgást negál\./);
+  assert.match(x.complaint, /Fejsérülés nem érte\./);
+  assert.match(x.status, /^BP: 135\/82 Hgmm, P: 88\/min, SpO₂: 97%, T: ___°C/);
+  assert.match(x.status, /EKG: ___/);
+  assert.match(x.neuro, /Durva neurológiai gócjel nem észlelhető\./);
+  assert.match(x.neuro, /Spontán, iránytartó, horizonto-rotatoros, jobbra csapó, II\. fokú nystagmus\./);
+  assert.match(x.neuro, /Halmágyi-manőver bal oldalra fordításkor pozitív/);
+  assert.match(x.neuro, /Hypacusis nincs\./);
+  assert.match(x.epicrisis, /^A fentebb részletezett anamnézisű beteget szédülés miatt vizsgáltuk ambulanciánkon\./);
+  assert.match(x.epicrisis, /harmonikus/);
+  assert.match(x.epicrisis, /panaszai hátterében vestibularis neuronitis feltételezhető\./);
+  assert.match(x.epicrisis, /otthonába emittáljuk/);
+  assert.match(x.dx, /H81\.2/);
+  assert.match(x.advice, /Arlevert/);
+  assert.match(x.advice, /fül-orr-gégészeti szakrendelés/);
+  assert.match(x.advice, /legközelebbi sürgősségi osztályon jelentkezzen/);
 });
 
-test('centrális AVS: nem bocsát haza, konzílium-helyet hagy', () => {
+test('negálás csak kifejezett jelölésre', () => {
+  const s = { ...stable, continuous: 'yes', 'rf.nausea': true };
+  assert.doesNotMatch(secs(s).complaint, /negál/);
+  const x = secs({ ...s, 'rf.denyRest': true });
+  assert.match(x.complaint, /Hányást, fejfájást, kettőslátást, palpitációt, mellkasi fájdalmat, fulladást, eszméletvesztést negál\./);
+  assert.doesNotMatch(x.complaint, /hányingert.*negál/);
+});
+
+test('centrális AVS: nem emittál, konzílium-helyet hagy', () => {
   const s = { ...stable, continuous: 'yes', 'avs.trauma': 'no', 'avs.headache': 'no', 'avs.drug': 'no', 'hints.hit': 'normal', 'hints.nyst': 'gaze_evoked', 'hints.skew': 'pos', 'hints.hearing': 'none' };
-  const t = epi(s);
-  assert.match(t, /centrális eredetre utal/);
-  assert.match(t, /Neurológiai konzílium véleménye: ___/);
-  assert.doesNotMatch(t, /otthonába bocsátható/);
-  assert.match(t, /R42/);
+  const x = secs(s);
+  assert.match(x.epicrisis, /centrális eredetre utal/);
+  assert.match(x.epicrisis, /Neurológiai konzílium véleménye: ___/);
+  assert.doesNotMatch(x.epicrisis, /emittáljuk/);
+  assert.match(x.neuro, /Halmágyi-manőver mko\. negatív/);
+  assert.match(x.dx, /R42/);
 });
 
-test('BPPV: Epley, betegtájékoztató, vezetés tilalma, H81.1', () => {
+test('BPPV: neuro status, Epley, vezetés tilalma, H81.1', () => {
   const s = { ...stable, continuous: 'no', triggered: 'yes', 'tevs.state': 'calm', 'dh.right': 'typical', 'dh.left': 'neg', 'tevs.maneuver': 'yes', 'tevs.maneuverEffect': 'better', 'tevs.severity': 'mild' };
-  const t = epi(s);
-  assert.match(t, /jobb oldali, posterior ívjárati BPPV/);
-  assert.match(t, /Epley-manővert végeztünk, ezt követően panaszai mérséklődtek/);
-  assert.match(t, /Epley-torna/);
-  assert.match(t, /Gépjárművet ne vezessen/);
-  assert.match(t, /H81\.1/);
+  const x = secs(s);
+  assert.match(x.neuro, /Dix-Hallpike-manőver jobb oldalon pozitív/);
+  assert.match(x.epicrisis, /jobb oldali, posterior ívjárati BPPV igazolódott/);
+  assert.match(x.epicrisis, /Epley-manővert végeztem, ezt követően panaszai mérséklődtek/);
+  assert.match(x.epicrisis, /nem észleltünk\. Sürgősségi/);
+  assert.match(x.advice, /Epley-torna/);
+  assert.match(x.advice, /Gépjárművet ne vezessen/);
+  assert.match(x.dx, /H81\.1/);
 });
 
-test('nem jelölt tünetet nem tagad és nem állít', () => {
-  const t = epi({ ...stable, continuous: 'yes' });
-  assert.doesNotMatch(t, /tagad/);
-  assert.doesNotMatch(t, /Kísérő tünetként/);
-  assert.doesNotMatch(t, /Epley|Arlevert/);
+test('kétoldali negatív Dix-Hallpike → „Mko. Dix-Hallpike-manőver negatív”', () => {
+  const x = secs({ ...stable, continuous: 'no', triggered: 'yes', 'tevs.state': 'calm', 'dh.right': 'neg', 'dh.left': 'neg' });
+  assert.match(x.neuro, /Mko\. Dix-Hallpike-manőver negatív\./);
 });
 
-test('s-EVS magas TIA kockázat: G45.0, nincs hazabocsátás', () => {
-  const t = epi({ ...stable, continuous: 'no', triggered: 'no', 'sevs.tiaRisk': 'high' });
-  assert.match(t, /G45\.0/);
-  assert.doesNotMatch(t, /otthonába bocsátható/);
+test('s-EVS magas TIA kockázat: G45.0, nem emittál', () => {
+  const x = secs({ ...stable, continuous: 'no', triggered: 'no', 'sevs.tiaRisk': 'high' });
+  assert.match(x.dx, /G45\.0/);
+  assert.doesNotMatch(x.epicrisis, /emittáljuk/);
+});
+
+test('teljes szöveg összefűzése', () => {
+  const t = E.epicrisis({ ...periphAvs, note: 'teszt' }, L.evaluate(periphAvs), C);
+  assert.match(t, /^JELEN PANASZ:\n/);
+  assert.match(t, /\n\nEPIKRÍZIS:\n/);
+  assert.match(t, /Megjegyzés: teszt$/);
 });
