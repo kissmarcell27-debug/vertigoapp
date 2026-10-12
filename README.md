@@ -62,3 +62,11 @@ az alkalmazás ezt a felületen is jelzi.
 
 A `szedules-sbo.html` a teljes app egyetlen fájlban (CSS és JS beágyazva): letölthető, és dupla kattintással offline is megnyitható.
 A forrásfájlok módosítása után újragenerálandó: `npm run build`.
+
+## Animált ábrák
+
+A HINTS+ lépésben minden vizsgálat alatt egy „Hogyan néz ki?” gomb animált, sematikus SVG-ábrát nyit meg
+(`js/illustrations.js`): Head Impulse Test (normál VOR vs. korrekciós szakkád), a nystagmus típusai
+(iránytartó horizontális, vertikális, rotatoros, tekintésirányú), skew deviation (váltakozó takarás), ujjdörzsöléses
+hallásvizsgálat, Romberg-próba, Bárány-féle mutatópróba, vakjárás. Ugyanezek a Referencia fülön is megtalálhatók.
+Szemből nézett ábrákon a beteg jobb oldala a kép bal oldalán van.

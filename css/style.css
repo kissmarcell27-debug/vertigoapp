@@ -187,3 +187,45 @@ a { color: var(--accent); }
   .report { border: 0; background: #fff; }
   .reference details { break-inside: avoid; }
 }
+
+/* Animált vizsgálati ábrák */
+.illus { margin: -6px 0 16px; }
+.illus > summary {
+  cursor: pointer; color: var(--accent); font-size: 14px; font-weight: 600; display: inline-block;
+  padding: 4px 10px; border: 1px dashed var(--accent); border-radius: 999px;
+}
+.illus[open] > summary { margin-bottom: 8px; }
+.ill-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.ill-grid.one { grid-template-columns: minmax(0, 360px); }
+.ill-panel { margin: 0; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); border-top: 4px solid var(--line); }
+.ill-panel.central { border-top-color: var(--danger); }
+.ill-panel.peripheral { border-top-color: var(--ok); }
+.ill-panel figcaption { font-size: 13px; margin-top: 6px; }
+.ill-lead, .ill-note { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
+.ill-note { margin-top: 8px; }
+.ill { width: 100%; height: auto; max-height: 220px; display: block; }
+.ill-ref { margin-top: 12px; }
+
+.ill-sclera { fill: #fbfbfd; }
+.ill-outline { fill: none; stroke: var(--text); stroke-width: 1.4; }
+.ill-iris { fill: #5f86b0; }
+.ill-pupil { fill: #14161c; }
+.ill-marker { stroke: #fbfbfd; stroke-width: 2; stroke-linecap: round; }
+.ill-skin { fill: #e9c9ad; stroke: var(--text); stroke-width: 1.4; }
+.ill-skin-line { fill: none; stroke: var(--text); stroke-width: 1.6; }
+.ill-finger { fill: #e9c9ad; stroke: var(--text); stroke-width: 1.2; }
+.ill-target { fill: var(--danger); }
+.ill-gaze { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 4; }
+.ill-stroke { fill: none; stroke: var(--text); stroke-width: 2; stroke-linecap: round; }
+.ill-stroke.wide { stroke-width: 4; }
+.ill-ground { stroke: var(--muted); stroke-width: 2; }
+.ill-dash { stroke: var(--muted); stroke-width: 2; stroke-dasharray: 6 5; }
+.ill-path { fill: none; stroke: var(--accent); stroke-width: 2.5; }
+.ill-arrow { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.ill-wave { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; }
+.ill-cover { fill: var(--muted); fill-opacity: .55; stroke: var(--text); stroke-width: 1; }
+.ill-text { fill: var(--text); font-size: 11px; }
+.ill-text.small { font-size: 9.5px; }
+.ill-text.mid, .ill-flag.mid { text-anchor: middle; }
+.ill-flag { fill: var(--danger); font-size: 11px; font-weight: 700; }
+.ill-ghost { fill: none; stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 3 2; }

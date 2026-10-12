@@ -115,6 +115,7 @@
           { v: 'saccade', l: 'Korrekciós szakkád (perifériás)' }, { v: 'normal', l: 'Negatív – nincs szakkád (centrális)' }, { v: 'nd', l: 'Nem végezhető' }] },
         { type: 'choice', key: 'hints.hitSide', label: 'Szakkád a fej melyik oldalra fordításakor? (= károsodott oldal)', options: LR,
           when: function (s) { return s['hints.hit'] === 'saccade'; } },
+        { type: 'illus', name: 'hit' },
         { type: 'choice', key: 'hints.nyst', label: 'Spontán nystagmus jellege', options: [
           { v: 'horiz_unidir', l: 'Iránytartó, horizontális / horizonto-rotatoros' },
           { v: 'vertical', l: 'Vertikális' }, { v: 'torsional', l: 'Tisztán rotatoros' },
@@ -124,19 +125,25 @@
         { type: 'choice', key: 'hints.nystGrade', label: 'Intenzitás', options: [
           { v: 'I', l: 'I. fok – csak a gyors komponens irányába nézve' }, { v: 'II', l: 'II. fok – előre nézve is' }, { v: 'III', l: 'III. fok – ellentétes irányba nézve is' }],
           when: function (s) { return s['hints.nyst'] === 'horiz_unidir'; } },
+        { type: 'illus', name: 'nystagmus' },
         { type: 'choice', key: 'hints.skew', label: 'Skew deviation (szemtakarásos teszt)', options: [
           { v: 'neg', l: 'Negatív' }, { v: 'pos', l: 'Pozitív – vertikális beállító szakkád' }, { v: 'nd', l: 'Nem végezhető' }] },
+        { type: 'illus', name: 'skew' },
         { type: 'choice', key: 'hints.hearing', label: 'Tájékozódó hallásvizsgálat', options: [
           { v: 'none', l: 'Nincs új halláscsökkenés' }, { v: 'acute_unilateral', l: 'Akut féloldali halláscsökkenés' }, { v: 'nd', l: 'Nem vizsgálható' }] },
+        { type: 'illus', name: 'hearing' },
         { type: 'heading', label: 'Statokinetikus próbák (harmonikus / diszharmonikus)' },
         { type: 'choice', key: 'stat.romberg', label: 'Romberg-próba', options: [
           { v: 'neg', l: 'Negatív' }, { v: 'sway', l: 'Ingadozik' }, { v: 'fall_left', l: 'Balra dől' }, { v: 'fall_right', l: 'Jobbra dől' },
           { v: 'fall_back', l: 'Hátradől' }, { v: 'unable', l: 'Nem végezhető' }] },
+        { type: 'illus', name: 'romberg' },
         { type: 'choice', key: 'stat.barany', label: 'Bárány-féle mutatópróba – félremutatás', options: [
           { v: 'none', l: 'Nincs' }, { v: 'left', l: 'Balra' }, { v: 'right', l: 'Jobbra' }, { v: 'nd', l: 'Nem végezhető' }] },
+        { type: 'illus', name: 'barany' },
         { type: 'choice', key: 'stat.gait', label: 'Vakjárás', options: [
           { v: 'normal', l: 'Egyenes' }, { v: 'dev_left', l: 'Balra deviál' }, { v: 'dev_right', l: 'Jobbra deviál' },
           { v: 'ataxia', l: 'Kifejezett ataxia' }, { v: 'unable', l: 'Nem járóképes' }] },
+        { type: 'illus', name: 'gait' },
         { type: 'yn', key: 'stat.truncal', label: 'Törzsataxia?' },
         { type: 'hintsBox' },
         { type: 'heading', label: 'Súlyosság', when: function (s, r) { return r.hints && r.hints.result === 'peripheral'; } },
@@ -260,11 +267,21 @@
       case 'orth': return renderOrth(r);
       case 'drugs': return renderDrugs();
       case 'hintsBox': return renderHintsBox(r);
+      case 'illus': return renderIllus(f.name);
       case 'abcd2Box': return '<div data-live="abcd2">' + renderAbcd2Box(r) + '</div>';
       case 'therapy': return renderTherapy(r);
       case 'summary': return renderSummary(r);
       default: return '';
     }
+  }
+
+  var openIllus = {};
+  function renderIllus(name) {
+    var I = window.VertigoIllustrations;
+    if (!I) return '';
+    var open = !!openIllus[name];
+    return '<details class="illus" data-illus="' + name + '"' + (open ? ' open' : '') + '><summary>Hogyan néz ki? (animált ábra)</summary>' +
+      (open ? I.get(name) : '') + '</details>';
   }
 
   function renderOrth(r) {
@@ -487,6 +504,9 @@
     var drugs = '<h4>Szédülést okozó gyógyszerek (1. melléklet)</h4><ul class="cols">' + C.DRUGS.map(function (d) { return '<li>' + esc(d) + '</li>'; }).join('') + '</ul>';
     document.getElementById('reference').innerHTML = C.REFERENCE.map(function (sec) {
       var body = sec.id === 'therapy' ? therapyHtml + drugs : sec.html;
+      var I = window.VertigoIllustrations;
+      var ill = { hints: ['hit', 'nystagmus', 'skew', 'hearing'], statokinetic: ['romberg', 'barany', 'gait'] }[sec.id];
+      if (I && ill) body += ill.map(function (n) { return '<div class="ill-ref">' + I.get(n) + '</div>'; }).join('');
       return '<details class="refsec" id="ref-' + sec.id + '"' + (refOpen === sec.id ? ' open' : '') + '><summary>' + esc(sec.title) + '</summary><div>' + body + '</div></details>';
     }).join('');
     if (refOpen) {
@@ -510,6 +530,15 @@
     var la = document.querySelector('[data-live="abcd2"]');
     if (la) la.innerHTML = renderAbcd2Box(r);
   }
+
+  // Az ábrák csak lenyitva renderelődnek; a nyitott állapot megmarad az újrarajzolások között.
+  document.addEventListener('toggle', function (e) {
+    var d = e.target;
+    if (!d.getAttribute || !d.getAttribute('data-illus')) return;
+    var name = d.getAttribute('data-illus');
+    openIllus[name] = d.open;
+    if (d.open && !d.querySelector('svg')) d.insertAdjacentHTML('beforeend', window.VertigoIllustrations.get(name));
+  }, true);
 
   document.addEventListener('change', function (e) {
     var t = e.target, key = t.getAttribute && t.getAttribute('data-key');
