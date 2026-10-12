@@ -1,0 +1,1420 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Szédülés SBO</title>
+  <meta name="description" content="Döntéstámogató a szédüléssel jelentkező beteg sürgősségi vizsgálatához, az ÉPC-HK SBO SOP alapján.">
+  <style>
+:root {
+  --bg: #f4f5f8;
+  --card: #ffffff;
+  --text: #1c2130;
+  --muted: #5d6475;
+  --line: #dde0e8;
+  --accent: #5b4fa3;
+  --accent-soft: #ece9f7;
+  --danger: #b42318;
+  --danger-soft: #fdecea;
+  --warn: #8a5a00;
+  --warn-soft: #fff4dc;
+  --ok: #1d7a3e;
+  --ok-soft: #e5f5ea;
+  --info: #1f5a99;
+  --info-soft: #e7f0fb;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161c;
+    --card: #1d2029;
+    --text: #e7e9ef;
+    --muted: #a0a6b5;
+    --line: #333846;
+    --accent: #a99cf0;
+    --accent-soft: #2c2845;
+    --danger: #ff8a80;
+    --danger-soft: #3b1f1f;
+    --warn: #f4c46a;
+    --warn-soft: #382d16;
+    --ok: #7dd99a;
+    --ok-soft: #1b3324;
+    --info: #8cbcf2;
+    --info-soft: #1a2a3d;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+h1, h2, h3, h4 { line-height: 1.25; }
+a { color: var(--accent); }
+
+.top {
+  display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between;
+  padding: 12px 16px; background: var(--card); border-bottom: 1px solid var(--line);
+}
+.brand h1 { margin: 0; font-size: 18px; }
+.brand p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.tabs { display: flex; gap: 6px; }
+.tabs button {
+  border: 1px solid var(--line); background: transparent; color: var(--text);
+  padding: 7px 12px; border-radius: 8px; font: inherit; cursor: pointer;
+}
+.tabs button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tabs button.danger { color: var(--danger); }
+
+.banner { background: var(--warn-soft); color: var(--warn); padding: 8px 16px; font-weight: 600; font-size: 14px; }
+.disclaimer { padding: 6px 16px; font-size: 12.5px; color: var(--muted); }
+
+.layout {
+  display: grid; gap: 16px; padding: 0 16px 32px;
+  grid-template-columns: 230px minmax(0, 1fr) 360px; align-items: start;
+}
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+
+.steps { list-style: none; margin: 0; padding: 0; position: sticky; top: 12px; }
+.steps li { margin-bottom: 4px; }
+.steps button {
+  width: 100%; text-align: left; border: 0; background: transparent; color: var(--text);
+  padding: 8px 10px; border-radius: 8px; font: inherit; cursor: pointer; display: flex; gap: 8px; align-items: center;
+}
+.steps button:hover { background: var(--accent-soft); }
+.steps button.current { background: var(--accent); color: #fff; }
+.steps button.todo { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.steps .n {
+  flex: none; width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center;
+  font-size: 12px; background: var(--accent-soft); color: var(--accent);
+}
+.steps button.current .n { background: #fff; }
+
+.form h2 { margin: 0 0 12px; font-size: 20px; }
+.form h3 { margin: 18px 0 8px; font-size: 15px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+.ref { font-size: 11.5px; color: var(--muted); font-weight: 400; white-space: nowrap; }
+
+.field { display: block; border: 0; margin: 0 0 14px; padding: 0; min-width: 0; }
+.field > span, .field legend { display: block; font-weight: 600; margin-bottom: 6px; padding: 0; }
+.field input[type=text], .field input[type=number], .field textarea, .orth input {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg); color: var(--text); font: inherit;
+}
+.row { display: flex; gap: 8px; align-items: center; }
+.row.gap { gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.row .sep { color: var(--muted); }
+
+.seg { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg label {
+  padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; background: var(--bg);
+  user-select: none;
+}
+.seg input:checked + label { background: var(--accent); border-color: var(--accent); color: #fff; }
+.seg input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: 2px; }
+.seg .clear { border: 0; background: transparent; color: var(--muted); font-size: 18px; cursor: pointer; padding: 0 6px; }
+
+.check { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; cursor: pointer; }
+.check input { margin-top: 3px; width: 17px; height: 17px; accent-color: var(--accent); }
+
+.note { border-radius: 8px; padding: 9px 12px; margin: 8px 0; font-size: 14px; border-left: 4px solid; }
+.note.danger { background: var(--danger-soft); border-color: var(--danger); }
+.note.warn { background: var(--warn-soft); border-color: var(--warn); }
+.note.ok { background: var(--ok-soft); border-color: var(--ok); }
+.note.info { background: var(--info-soft); border-color: var(--info); }
+.note small { color: var(--muted); }
+.hints-box div { margin-top: 4px; }
+
+.orth table { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
+.orth th, .orth td { padding: 3px 4px; text-align: left; font-size: 13px; }
+.orth th { color: var(--muted); font-weight: 600; }
+
+.drugs summary { cursor: pointer; font-weight: 600; margin-bottom: 6px; }
+.drugs .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0 12px; }
+
+.nav { display: flex; justify-content: space-between; margin-top: 22px; gap: 10px; }
+.btn {
+  border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: 8px;
+  padding: 9px 14px; font: inherit; cursor: pointer;
+}
+.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn.block { width: 100%; margin-top: 12px; }
+
+.panel { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow: auto; }
+.panel h4 { margin: 14px 0 4px; font-size: 13px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); }
+.panel ul, .panel ol { margin: 0; padding-left: 20px; }
+.panel li { margin-bottom: 4px; }
+.panel details { margin-top: 12px; font-size: 14px; }
+.panel summary { cursor: pointer; font-weight: 600; }
+.cat { font-weight: 700; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); }
+.cat.UNSTABLE, .cat.STROKE { background: var(--danger-soft); color: var(--danger); }
+.cat.none { color: var(--muted); font-weight: 500; }
+
+.report {
+  white-space: pre-wrap; background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.reference { max-width: 900px; margin: 0 auto; padding: 0 16px 40px; }
+.refsec { background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px; }
+.refsec summary { padding: 12px 16px; cursor: pointer; font-weight: 600; }
+.refsec > div { padding: 0 16px 14px; }
+.ref-table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.ref-table th, .ref-table td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+.cols { columns: 2; }
+.jump { display: none; }
+
+@media (max-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 320px; }
+  .steps-wrap { grid-column: 1 / -1; }
+  .steps { position: static; display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+  .steps li { margin: 0; flex: none; }
+  .steps button { white-space: nowrap; }
+}
+@media (max-width: 760px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .panel { position: static; max-height: none; }
+  .cols { columns: 1; }
+  .jump {
+    display: block; position: fixed; right: 16px; bottom: 16px; z-index: 5; padding: 10px 14px;
+    background: var(--accent); color: #fff; border-radius: 999px; text-decoration: none; font-weight: 600;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, .25);
+  }
+  body:has(#exam[hidden]) .jump { display: none; }
+  .layout { padding-bottom: 72px; }
+  .orth th, .orth td { padding: 2px; }
+}
+
+@media print {
+  .jump, .top .tabs, .steps-wrap, .panel, .nav, .disclaimer, .row.gap, .field, .banner { display: none !important; }
+  body { background: #fff; color: #000; }
+  .layout { display: block; padding: 0; }
+  .card { border: 0; padding: 0; }
+  .report { border: 0; background: #fff; }
+  .reference details { break-inside: avoid; }
+}
+
+</style>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <h1>Szédüléssel jelentkező beteg</h1>
+      <p>Döntéstámogató az ÉPC-HK SBO SOP (v1.0) alapján</p>
+    </div>
+    <nav class="tabs">
+      <button type="button" id="viewExam" class="active">Vizsgálat</button>
+      <button type="button" id="viewRef">Referencia</button>
+      <button type="button" id="reset" class="danger">Új beteg</button>
+    </nav>
+  </header>
+  <div id="validity" class="banner" hidden></div>
+  <div class="disclaimer">
+    Döntéstámogató eszköz – nem helyettesíti a klinikai ítéletet és a szakmai felelősséget. Adatot nem tárol és nem küld: minden a böngészőben marad, és oldalfrissítéskor törlődik.
+  </div>
+
+  <main id="exam" class="layout">
+    <aside class="steps-wrap"><ol id="steps" class="steps"></ol></aside>
+    <section id="form" class="card form"></section>
+    <aside id="panel" class="card panel" aria-live="polite"></aside>
+  </main>
+  <a href="#panel" class="jump">Döntéstámogatás ↓</a>
+  <main id="reference" class="reference" hidden></main>
+
+  <script>
+/*
+ * Döntési logika – "Szédüléssel jelentkező beteg ellátása" SOP (ÉPC-HK SBO, v1.0, 2023.09.01.)
+ *
+ * Tiszta függvények, DOM nélkül: a böngészőben window.VertigoLogic, Node-ban module.exports.
+ * Minden következtetés mellett `ref` jelöli az SOP fejezetét / ábráját, vagy – ha nem az SOP
+ * része – a külső forrást.
+ */
+(function (root) {
+  'use strict';
+
+  var yes = function (v) { return v === 'yes' || v === true; };
+  var no = function (v) { return v === 'no'; };
+  var num = function (v) {
+    if (v === null || v === undefined || v === '') return null;
+    var n = Number(String(v).replace(',', '.'));
+    return isFinite(n) ? n : null;
+  };
+
+  /* ------------------------------------------------------------------ */
+  /* Orthostasis teszt                                                   */
+  /* Kritérium: Freeman R. et al., Clin Auton Res 2011;21:69–72          */
+  /* (konszenzus definíció – az SOP nem definiálja a határértékeket)     */
+  /* ------------------------------------------------------------------ */
+  function orthostasis(s) {
+    var supSys = num(s['orth.supSys']), supDia = num(s['orth.supDia']), supHr = num(s['orth.supHr']);
+    var stSys = num(s['orth.stSys']), stDia = num(s['orth.stDia']), stHr = num(s['orth.stHr']);
+    if (supSys === null || stSys === null || supDia === null || stDia === null) {
+      if (s['orth.manual'] === 'pos') return { done: true, positive: true, manual: true };
+      if (s['orth.manual'] === 'neg') return { done: true, positive: false, manual: true };
+      return { done: false };
+    }
+    var dSys = supSys - stSys;
+    var dDia = supDia - stDia;
+    var dHr = (supHr !== null && stHr !== null) ? stHr - supHr : null;
+    var oh = dSys >= 20 || dDia >= 10;
+    var pots = !oh && dHr !== null && dHr >= 30;
+    return { done: true, positive: oh, dSys: dSys, dDia: dDia, dHr: dHr, pots: pots };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* ABCD2 score – Johnston SC et al., Lancet 2007;369:283–292           */
+  /* (az SOP 5.4 említi a TIA-kockázat becslésére)                       */
+  /* ------------------------------------------------------------------ */
+  function abcd2(s) {
+    var age = num(s['abcd2.age']);
+    var sys = num(s['abcd2.sys']);
+    var dia = num(s['abcd2.dia']);
+    var clin = s['abcd2.clinical'];
+    var dur = s['abcd2.dur'];
+    var dm = s['abcd2.dm'];
+    var complete = age !== null && sys !== null && dia !== null && !!clin && !!dur && !!dm;
+    var score = 0;
+    var parts = [];
+    if (age !== null && age >= 60) { score += 1; parts.push('Életkor ≥60 (+1)'); }
+    if ((sys !== null && sys >= 140) || (dia !== null && dia >= 90)) { score += 1; parts.push('RR ≥140/90 (+1)'); }
+    if (clin === 'weakness') { score += 2; parts.push('Féloldali gyengeség (+2)'); }
+    else if (clin === 'speech') { score += 1; parts.push('Beszédzavar gyengeség nélkül (+1)'); }
+    if (dur === '60+') { score += 2; parts.push('Időtartam ≥60 perc (+2)'); }
+    else if (dur === '10-59') { score += 1; parts.push('Időtartam 10–59 perc (+1)'); }
+    if (yes(dm)) { score += 1; parts.push('Diabetes (+1)'); }
+    var band = null, risk2d = null;
+    if (complete) {
+      if (score <= 3) { band = 'alacsony'; risk2d = '1,0%'; }
+      else if (score <= 5) { band = 'közepes'; risk2d = '4,1%'; }
+      else { band = 'magas'; risk2d = '8,1%'; }
+    }
+    return { complete: complete, score: score, parts: parts, band: band, risk2d: risk2d };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Spontán vestibularis tünetcsoport: harmonikus / diszharmonikus      */
+  /* SOP 6.1.2: harmonikus = dőlés/félremutatás a nystagmus gyors         */
+  /* komponensével ellentétes (perifériás); diszharmonikus = azonos        */
+  /* irányú (centrális). Hátradőlés, törzsataxia → centrális.             */
+  /* ------------------------------------------------------------------ */
+  function harmony(s) {
+    var fast = s['hints.nystDir']; // 'left' | 'right'
+    var devs = [];
+    var central = [];
+    var romberg = s['stat.romberg'];
+    if (romberg === 'fall_left') devs.push({ test: 'Romberg', dir: 'left' });
+    if (romberg === 'fall_right') devs.push({ test: 'Romberg', dir: 'right' });
+    if (romberg === 'fall_back') central.push('Romberg: hátradőlés');
+    var barany = s['stat.barany'];
+    if (barany === 'left' || barany === 'right') devs.push({ test: 'Bárány', dir: barany });
+    var gait = s['stat.gait'];
+    if (gait === 'dev_left') devs.push({ test: 'Vakjárás', dir: 'left' });
+    if (gait === 'dev_right') devs.push({ test: 'Vakjárás', dir: 'right' });
+    if (gait === 'ataxia') central.push('Vakjárás: kifejezett ataxia');
+    if (s['stat.truncal'] === 'yes') central.push('Törzsataxia');
+
+    var result = null;
+    var same = 0, opposite = 0;
+    if (fast === 'left' || fast === 'right') {
+      devs.forEach(function (d) { if (d.dir === fast) same++; else opposite++; });
+      if (same > 0) result = 'dysharmonic';
+      else if (opposite > 0) result = 'harmonic';
+    }
+    return { result: result, deviations: devs, centralSigns: central, same: same, opposite: opposite };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* HINTS+ (SOP 5.3, 6.2–6.4, 7. oldali táblázat, 2. ábra)              */
+  /* Centrális: HIT negatív (nincs korrekciós szakkád), vertikális /     */
+  /* rotatoros / tekintésirányú nystagmus, pozitív skew, akut féloldali  */
+  /* halláscsökkenés, diszharmonikus tünetcsoport.                       */
+  /* Perifériás: minden elem perifériás mintázatú (ÉS kapcsolat).         */
+  /* ------------------------------------------------------------------ */
+  function hints(s) {
+    var central = [], peripheral = [], missing = [], notes = [];
+    var hit = s['hints.hit'];
+    if (hit === 'saccade') peripheral.push('Head Impulse Test: korrekciós szakkád');
+    else if (hit === 'normal') central.push('Head Impulse Test: negatív (nincs korrekciós szakkád)');
+    else missing.push('Head Impulse Test');
+
+    var ny = s['hints.nyst'];
+    if (ny === 'horiz_unidir') peripheral.push('Nystagmus: iránytartó, horizontális / horizonto-rotatoros');
+    else if (ny === 'vertical') central.push('Nystagmus: vertikális');
+    else if (ny === 'torsional') central.push('Nystagmus: tisztán rotatoros');
+    else if (ny === 'gaze_evoked') central.push('Nystagmus: tekintésirányú (irányváltó)');
+    else if (ny === 'none') {
+      missing.push('Nystagmus (nem látható)');
+      notes.push('Spontán nystagmus hiányában a HINTS nem értékelhető megbízhatóan; a járás/törzsataxia ' +
+        'vizsgálata javasolt, súlyos járásképtelenség centrális okra gyanús (GRACE-3, Edlow et al. 2023).');
+    } else missing.push('Nystagmus');
+
+    var skew = s['hints.skew'];
+    if (skew === 'neg') peripheral.push('Skew deviation: negatív');
+    else if (skew === 'pos') central.push('Skew deviation: pozitív (vertikális beállító szakkád)');
+    else missing.push('Skew deviation');
+
+    var hear = s['hints.hearing'];
+    if (hear === 'none') peripheral.push('Hallás: nincs új halláscsökkenés');
+    else if (hear === 'acute_unilateral') central.push('Akut féloldali halláscsökkenés (AICA-infarktus lehetősége)');
+    else missing.push('Tájékozódó hallásvizsgálat');
+
+    var h = harmony(s);
+    if (h.result === 'dysharmonic') central.push('Diszharmonikus spontán vestibularis tünetcsoport');
+    h.centralSigns.forEach(function (c) { central.push(c); });
+    var harmonicOk = h.result === 'harmonic';
+    if (h.result === null) missing.push('Harmonikus/diszharmonikus tünetcsoport megítélése (nystagmus iránya + statokinetikus próbák)');
+
+    var result;
+    if (central.length > 0) result = 'central';
+    else if (hit === 'saccade' && ny === 'horiz_unidir' && skew === 'neg' && hear === 'none' && harmonicOk) result = 'peripheral';
+    else if (hit === 'saccade' && ny === 'horiz_unidir' && skew === 'neg' && hear === 'none') {
+      result = 'peripheral';
+      notes.push('A harmonikus tünetcsoport nem lett dokumentálva – a HINTS+ elemei perifériás mintázatúak.');
+    } else result = 'indeterminate';
+
+    var anyDone = !!(hit || ny || skew || hear);
+    return { result: anyDone ? result : null, central: central, peripheral: peripheral, missing: missing, notes: notes, harmony: h };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Pozícionális tesztek (SOP 5.5, 6.5, 3. ábra)                        */
+  /* ------------------------------------------------------------------ */
+  function positional(s) {
+    var r = s['dh.right'], l = s['dh.left'], roll = s['roll'];
+    var out = { result: null, canal: null, side: null, atypical: false, done: false };
+    var dhDone = (r && r !== 'nd') || (l && l !== 'nd');
+    var rollDone = roll && roll !== 'nd';
+    out.done = !!(dhDone || rollDone);
+    if (r === 'atypical' || l === 'atypical' || roll === 'atypical') {
+      out.result = 'central_suspect';
+      out.atypical = true;
+      return out;
+    }
+    if (r === 'typical' || l === 'typical') {
+      out.result = 'bppv';
+      out.canal = 'posterior';
+      out.side = (r === 'typical' && l === 'typical') ? 'both' : (r === 'typical' ? 'right' : 'left');
+      return out;
+    }
+    if (roll === 'geo_right' || roll === 'geo_left') {
+      out.result = 'bppv';
+      out.canal = 'horizontal';
+      out.side = roll === 'geo_right' ? 'right' : 'left';
+      return out;
+    }
+    if (out.done) out.result = 'negative';
+    return out;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Fő folyamat – 1. ábra                                               */
+  /* ------------------------------------------------------------------ */
+  var SIDE = { left: 'bal', right: 'jobb', both: 'kétoldali' };
+
+  function evaluate(s) {
+    s = s || {};
+    var r = {
+      category: null,        // UNSTABLE | STROKE | SECONDARY | AVS | SEVS | TEVS
+      stage: 'stability',    // a következő megválaszolandó lépés azonosítója
+      path: [],
+      alerts: [],            // {level: danger|warn|info|ok, text, ref}
+      workingDx: [],
+      actions: [],
+      disposition: [],
+      differentials: [],
+      hints: null,
+      abcd2: abcd2(s),
+      orthostasis: orthostasis(s),
+      positional: positional(s),
+    };
+    var add = function (list, text, ref) { r[list].push({ text: text, ref: ref }); };
+    var alert = function (level, text, ref) { r.alerts.push({ level: level, text: text, ref: ref }); };
+
+    // Red flag figyelmeztetések az anamnézisből (SOP 5.1)
+    var rf = ['rf.headache', 'rf.diplopia', 'rf.palpitation', 'rf.chestPain', 'rf.dyspnea', 'rf.syncope'];
+    var rfNames = { 'rf.headache': 'fejfájás', 'rf.diplopia': 'kettőslátás', 'rf.palpitation': 'palpitáció',
+      'rf.chestPain': 'mellkasi fájdalom', 'rf.dyspnea': 'dyspnoe', 'rf.syncope': 'syncope' };
+    var presentRf = rf.filter(function (k) { return s[k]; }).map(function (k) { return rfNames[k]; });
+    if (presentRf.length) {
+      alert('warn', '„Red flag” tünet(ek) az anamnézisben: ' + presentRf.join(', ') + '. Vegye figyelembe a további lépéseknél.', 'SOP 5.1');
+    }
+    if (yes(s['hx.trauma'])) {
+      alert('warn', 'Közelmúltbeli fejsérülés – folyamatos szédülésnél traumás SAV/ICH kizárása (natív koponya CT) szükséges.', 'SOP 5.3, 2. ábra');
+    }
+
+    // 1. lépés – stabilitás
+    if (!s['unstable']) { r.stage = 'stability'; return r; }
+    if (yes(s['unstable'])) {
+      r.category = 'UNSTABLE';
+      r.path.push('Cardiorespiratoricusan instabil');
+      alert('danger', 'Cardiorespiratoricusan instabil beteg: ellátás ABCDE séma szerint. Az SOP ezt részleteiben nem tárgyalja.', 'SOP 5.1');
+      add('actions', 'ABCDE szerinti ellátás, stabilizálás.', 'SOP 5.1');
+      r.stage = 'done';
+      return r;
+    }
+    r.path.push('Cardiorespiratoricusan stabil');
+
+    // 2. lépés – egyértelmű fokális neurológiai tünet
+    if (!s['focal']) { r.stage = 'focal'; return r; }
+    if (yes(s['focal'])) {
+      r.category = 'STROKE';
+      r.path.push('Egyértelmű, novum fokális neurológiai tünet');
+      alert('danger', 'Egyértelmű fokális neurológiai tünet: neurológus értesítése, további ellátás a stroke protokoll szerint.', 'SOP 5.1, 1. ábra (2)');
+      add('actions', 'Neurológus azonnali értesítése, stroke protokoll indítása.', '1. ábra (2)');
+      add('disposition', 'Stroke protokoll szerinti ellátás.', '1. ábra (2)');
+      r.stage = 'done';
+      return r;
+    }
+    r.path.push('Nincs egyértelmű fokális neurológiai tünet');
+
+    // 3. lépés – nem neurológiai ok valószínű?
+    if (!s['nonneuro']) { r.stage = 'nonneuro'; return r; }
+    if (yes(s['nonneuro'])) {
+      var cs = ['cs.nystagmus', 'cs.dysmetria', 'cs.truncal'];
+      var unanswered = cs.some(function (k) { return !s[k]; });
+      var anyCentral = cs.some(function (k) { return yes(s[k]); });
+      if (!anyCentral && unanswered) { r.stage = 'nonneuro'; return r; }
+      if (!anyCentral) {
+        r.category = 'SECONDARY';
+        r.path.push('Nem neurológiai ok valószínű' + (s['nonneuro.text'] ? ' (' + s['nonneuro.text'] + ')' : '') +
+          '; nincs kóros nystagmus, dysmetria, törzsataxia');
+        alert('info', 'Szekunder (nem neurológiai/fül-orr-gégészeti) szédülés valószínű: további vizsgálat, terápia és diszpozíció a megállapított ok alapján.', 'SOP 5.1, 1. ábra (3)');
+        add('actions', 'A megállapított ok (pl. ritmuszavar, bradycardia, elektrolitzavar, hyponatraemia) szerinti ellátás.', '1. ábra (3)');
+        r.stage = 'done';
+        return r;
+      }
+      r.path.push('Nem neurológiai ok felmerült, DE kóros nystagmus / dysmetria / törzsataxia van → vestibularis szindróma irányában tovább');
+      alert('warn', 'Bár nem neurológiai ok is felmerült, a kóros nystagmus / felső végtagi dysmetria / törzsataxia miatt a vestibularis szindróma algoritmusa folytatandó.', '1. ábra (3) szaggatott nyíl');
+    } else {
+      r.path.push('Nem neurológiai ok nem valószínű');
+    }
+
+    // 4–5. lépés – besorolás
+    if (!s['continuous']) { r.stage = 'classify'; return r; }
+    if (yes(s['continuous'])) {
+      r.category = 'AVS';
+      r.path.push('Folyamatos, jelenleg is fennálló szédülés → AVS');
+      return evaluateAVS(s, r, add, alert);
+    }
+    if (!s['triggered']) { r.stage = 'classify'; return r; }
+    if (no(s['triggered'])) {
+      r.category = 'SEVS';
+      r.path.push('Epizodikus, nem triggerelhető → s-EVS');
+      return evaluateSEVS(s, r, add, alert);
+    }
+    r.category = 'TEVS';
+    r.path.push('Epizodikus, pozícionálisan triggerelhető → t-EVS');
+    return evaluateTEVS(s, r, add, alert);
+  }
+
+  function evaluateAVS(s, r, add, alert) {
+    r.differentials = [
+      { group: 'Gyakori, nem életveszélyes', items: ['Vestibularis neuronitis'] },
+      { group: 'Potenciálisan életveszélyes', items: ['Vertebrobasilaris stroke'] },
+      { group: 'Ritkább', items: ['Wernicke-encephalopathia', 'Labyrinthitis', 'Sclerosis multiplex', 'Gyógyszer/egyéb toxin okozta károsodás'] },
+    ];
+    if (!s['avs.trauma'] || !s['avs.headache'] || !s['avs.drug']) { r.stage = 'avs_pre'; return r; }
+
+    var ich = yes(s['avs.trauma']) || yes(s['avs.headache']);
+    if (ich) {
+      r.path.push(yes(s['avs.trauma']) ? 'Koponyatrauma' : 'Erős, folyamatos/erősödő fejfájás');
+      alert('danger', 'Koponyatrauma és/vagy erős fejfájás: natív koponya CT spontán vagy traumás SAV / ICH irányában.', 'SOP 5.3, 7.2.1, 2. ábra');
+      add('actions', 'Natív koponya CT (ICH / SAV kizárása).', 'SOP 5.3, 7.2.1');
+      if (s['avs.ct'] === 'ich') {
+        alert('danger', 'Igazolt ICH: a HINTS+ ilyenkor nem indokolt; idegsebészeti/neurológiai ellátás.', 'SOP 5.3');
+        add('disposition', 'Igazolt ICH – a vérzés szerinti szakellátás.', 'SOP 5.3');
+        r.stage = 'done';
+        return r;
+      }
+      if (!s['avs.ct']) { r.stage = 'avs_pre'; return r; }
+      r.path.push('Koponya CT: nincs ICH/SAV → HINTS+');
+      alert('info', 'A negatív natív CT NEM zárja ki a vertebrobasilaris stroke-ot – a HINTS+ vizsgálat elvégzendő.', 'SOP 7.2.1');
+    }
+    if (yes(s['avs.drug'])) {
+      if (!s['avs.drugClear']) { r.stage = 'avs_pre'; return r; }
+      if (yes(s['avs.drugClear'])) {
+        alert('warn', 'Gyógyszerhatás csak akkor véleményezhető, ha a panaszok kezdete egyértelműen összefügg az új gyógyszerrel ÉS a többi kórképet nagy valószínűséggel kizártuk – a HINTS+ ettől függetlenül elvégzendő.', 'SOP 5.3');
+        add('actions', 'Gyógyszerelés módosítása a kezelőorvos bevonásával (1. melléklet).', '2. ábra');
+      }
+    }
+
+    // HINTS+
+    var h = hints(s);
+    r.hints = h;
+    if (!h.result) { r.stage = 'hints'; return r; }
+    r.stage = 'avs_dispo';
+    if (h.result === 'central') {
+      r.path.push('HINTS+: centrális ok valószínű');
+      alert('danger', 'HINTS+ alapján centrális ok valószínű: ' + h.central.join('; ') + '.', 'SOP 5.3, 6.4 táblázat, 2. ábra');
+      r.workingDx.push({ text: 'Valószínűleg centrális eredetű AVS – vertebrobasilaris stroke gyanú', ref: 'SOP 9' });
+      add('actions', 'Neurológiai konzílium vertebrobasilaris stroke irányában.', 'SOP 5.3, 9');
+      add('actions', 'Képalkotás: koponya MR (DWI) és MRA javasolt – neurológussal egyeztetve, többnyire osztályos felvételt követően.', 'SOP 7.2.2');
+      add('disposition', 'Neurológiai konzílium; elhelyezés a neurológus javaslata szerint.', 'SOP 9');
+    } else if (h.result === 'peripheral') {
+      r.path.push('HINTS+: perifériás ok valószínű');
+      alert('ok', 'HINTS+ alapján perifériás ok valószínű: ' + h.peripheral.join('; ') + '.', 'SOP 5.3, 6.4 táblázat, 2. ábra');
+      r.workingDx.push({ text: 'Valószínűleg perifériás eredetű AVS – leggyakrabban vestibularis neuronitis (esetleg s-EVS-t okozó kórkép első epizódja)', ref: 'SOP 5.3' });
+      add('actions', 'További vizsgálat az SBO-n nem szükséges.', 'SOP 5.3');
+      if (!s['avs.severe']) { r.stage = 'avs_dispo'; }
+      else if (yes(s['avs.severe'])) {
+        add('disposition', 'Súlyos eset (folyamatos parenterális hányáscsillapítás igénye / teljes önellátási képtelenség): hospitalizáció – területileg illetékes fül-orr-gégészeti elhelyezés.', 'SOP 5.3, 9');
+        r.stage = 'done';
+      } else {
+        add('disposition', 'Tanáccsal emittálható, ambuláns fül-orr-gégészeti kontroll javaslatával.', 'SOP 5.3, 9');
+        add('actions', 'Tüneti terápia (antihisztamin, benzodiazepin, antiemetikum), verbális megnyugtatás; az akut tünetek lezajlása után vestibularis rehabilitációs gyakorlatok.', 'SOP 8, 3. melléklet');
+        r.stage = 'done';
+      }
+    } else {
+      r.path.push('HINTS+: nem egyértelmű / hiányos');
+      alert('warn', 'A HINTS+ nem ad egyértelmű perifériás mintázatot (hiányzó/ellentmondó elemek: ' +
+        (h.missing.length ? h.missing.join(', ') : '—') + '). Az SOP szerint perifériás ok csak teljes perifériás mintázatnál valószínűsíthető – ' +
+        'ilyenkor a biztonságos út a neurológiai konzílium.', 'SOP 6.4 táblázat; óvatossági elv');
+      add('actions', 'Hiányzó HINTS+ elemek pótlása, ha kivitelezhető; ellenkező esetben neurológiai konzílium.', 'SOP 5.3');
+    }
+    h.notes.forEach(function (n) { alert('info', n, 'GRACE-3 / SOP 6'); });
+    return r;
+  }
+
+  function evaluateSEVS(s, r, add, alert) {
+    r.differentials = [
+      { group: 'Gyakori, nem életveszélyes', items: ['Vestibularis migrén'] },
+      { group: 'Potenciálisan életveszélyes', items: ['Vertebrobasilaris TIA'] },
+      { group: 'Ritkább / egyéb', items: ['Szívritmuszavar', 'Tüdőembólia', 'Pánikroham', 'Ménière-betegség'] },
+    ];
+    if (r.abcd2.complete) {
+      alert(r.abcd2.band === 'alacsony' ? 'info' : 'warn',
+        'ABCD2 = ' + r.abcd2.score + ' (' + r.abcd2.band + ' kockázat, 2 napos stroke-kockázat ≈ ' + r.abcd2.risk2d + '). ' +
+        'Az ABCD2 csak segítség – izolált szédülésre nem validált, a klinikai megítélés dönt.', 'SOP 5.4; Johnston et al. 2007');
+    }
+    if (!s['sevs.tiaRisk']) { r.stage = 'sevs'; return r; }
+    if (s['sevs.tiaRisk'] === 'high') {
+      r.path.push('Anamnézis alapján a TIA kockázata magas');
+      r.workingDx.push({ text: 'Valószínűleg centrális eredetű s-EVS – vertebrobasilaris TIA gyanú', ref: 'SOP 5.4, 9' });
+      alert('danger', 'Magas TIA-kockázat: neurológiai konzílium / neurológiai elhelyezés vertebrobasilaris TIA irányában.', 'SOP 5.4, 3. ábra');
+      add('actions', 'Neurológiai konzílium. Vertebrobasilaris TIA gyanújánál MRA javasolt.', 'SOP 5.4, 7.2.2');
+      if (s['sevs.inArea'] === 'no') add('disposition', 'Területen kívüli beteg: az illetékes neurológiai osztályra helyezendő.', 'SOP 9');
+      else add('disposition', 'ÉPC-HK területi beteg: neurológiai konzílium kérése vertebrobasilaris TIA irányában.', 'SOP 9');
+      r.stage = 'done';
+      return r;
+    }
+    r.path.push('Anamnézis alapján a TIA kockázata alacsony → perifériás ok valószínű');
+    var dx = [];
+    if (s['sevs.headache']) dx.push({ text: 'Vestibularis migrén (epizódokban jelentkező / szédülést követő erős fejfájás)', ref: 'SOP 5.4, 3. ábra, 3. melléklet' });
+    if (s['sevs.tinnitus']) dx.push({ text: 'Ménière-betegség (fülzúgás, halláscsökkenés)', ref: 'SOP 5.4, 3. ábra, 3. melléklet' });
+    if (s['sevs.anxiety']) dx.push({ text: 'Pánik / szorongás alapú (pszichogén) szédülés', ref: 'SOP 5.4, 3. ábra' });
+    if (!dx.length) dx.push({ text: 'Valószínűleg perifériás eredetű s-EVS – a kísérő tünetek alapján nem pontosítható', ref: 'SOP 5.4' });
+    r.workingDx = r.workingDx.concat(dx);
+    if (s['sevs.anxiety']) {
+      alert('info', 'Pszichogén ok csak a organikus okok mérlegelése után mondható ki; a ritmuszavar és tüdőembólia is s-EVS-t okozhat.', 'SOP 5.2 táblázat, 5.4');
+    }
+    if (!s['sevs.course']) { r.stage = 'sevs'; return r; }
+    if (s['sevs.course'] === 'mild') {
+      add('disposition', 'Nem ismétlődik / enyhe, ambulánsan menedzselhető: tanáccsal emittálható.', 'SOP 5.4, 3. ábra');
+      add('actions', 'Ambuláns szakrendelés: perifériás vestibularis eredet → fül-orr-gégészet; vestibularis migrén → neurológia.', 'SOP 5.4');
+    } else {
+      add('disposition', 'Ismétlődő, súlyos, ambulánsan nem menedzselhető: organikus eredet esetén hospitalizáció megfontolandó (területileg illetékes fül-orr-gégészeti/neurológiai elhelyezés).', 'SOP 5.4, 9, 3. ábra');
+    }
+    r.stage = 'done';
+    return r;
+  }
+
+  function evaluateTEVS(s, r, add, alert) {
+    r.differentials = [
+      { group: 'Gyakori, nem életveszélyes', items: ['BPPV', 'Orthostaticus hypotonia (nem életveszélyes háttérrel)'] },
+      { group: 'Potenciálisan életveszélyes', items: ['Orthostaticus hypotonia életveszélyes háttérrel', 'CPPV (hátsó skálai térfoglalás/ischaemia)'] },
+      { group: 'Ritkább', items: ['A. vertebralis kompressziós szindróma', 'Carotis sinus szindróma', 'Posturalis orthostaticus tachycardia szindróma (POTS)'] },
+    ];
+    if (!s['tevs.state']) { r.stage = 'tevs'; return r; }
+    if (s['tevs.state'] === 'severe') {
+      alert('warn', 'Folyamatosan, erősen szédülő betegnél a pozícionális vizsgálat felesleges és értelmetlen. Ha a szédülés folyamatos, a beteg AVS-ként értékelendő.', 'SOP 5.5, 6.5');
+      r.stage = 'tevs';
+      return r;
+    }
+    var p = r.positional;
+    if (!p.done) { r.stage = 'tevs'; return r; }
+    if (p.result === 'central_suspect') {
+      r.path.push('Pozícionális teszt: atípusos (nincs latencia / irányváltó / nem csökkenő)');
+      r.workingDx.push({ text: 'Centrális pozícionális vertigo (CPPV) gyanúja', ref: 'SOP 6.5, 5.2 táblázat' });
+      alert('danger', 'Atípusos pozícionális nystagmus (latencia hiánya, irányváltó nystagmus vagy idővel nem csökkenő szédülés) centrális laesióra utalhat: neurológiai konzílium.', 'SOP 6.5');
+      add('actions', 'Neurológiai konzílium.', 'SOP 6.5');
+      r.stage = 'done';
+      return r;
+    }
+    if (p.result === 'bppv') {
+      var canalTxt = p.canal === 'posterior' ? 'posterior (hátsó) ívjárat' : 'horizontális ívjárat';
+      r.path.push('Pozícionális teszt pozitív → BPPV (' + canalTxt + ', ' + SIDE[p.side] + ' oldal)');
+      r.workingDx.push({ text: 'BPPV – ' + canalTxt + ', ' + SIDE[p.side] + ' oldal', ref: 'SOP 5.5, 6.5' });
+      if (p.canal === 'posterior') {
+        add('actions', 'Epley-manőver az érintett (' + SIDE[p.side] + ') oldalról indítva; Epley-torna betanítása otthoni ismétlésre.', 'SOP 6.5, 8');
+      } else {
+        add('actions', 'Barbecue-manőver, az érintett (' + SIDE[p.side] + ') oldal felé kezdve.', 'SOP 6.5');
+      }
+      add('actions', 'Betegtájékoztató átadása (BPPV, 2. melléklet).', 'SOP 8, 2. melléklet');
+      if (!s['tevs.severity']) { r.stage = 'tevs'; return r; }
+      if (s['tevs.severity'] === 'mild') add('disposition', 'Enyhe, ambulánsan menedzselhető: emisszió, Epley-torna betanítása, ambuláns fül-orr-gégészeti kontroll.', 'SOP 5.5, 9, 3. ábra');
+      else add('disposition', 'Súlyos, ambulánsan nem menedzselhető: hospitalizáció a területileg illetékes fül-orr-gégészeti osztályon.', 'SOP 5.5, 9, 3. ábra');
+      r.stage = 'done';
+      return r;
+    }
+    // negatív pozícionális teszt
+    r.path.push('Pozícionális tesztekkel nem provokálható');
+    var o = r.orthostasis;
+    if (!o.done) {
+      alert('info', 'Orthostasis teszt elvégzése javasolt (ha még nem történt meg).', 'SOP 5.5, 3. ábra');
+      r.stage = 'tevs';
+      return r;
+    }
+    if (o.positive) {
+      r.workingDx.push({ text: 'Orthostaticus hypotonia', ref: 'SOP 5.2 táblázat, 3. ábra' });
+      alert('warn', 'Orthostaticus hypotonia: keresse az életveszélyes hátteret (pl. vérzés, dehidráció, aritmia) – az SOP szerint lehet életveszélyes kórkép tünete.', 'SOP 5.2 táblázat');
+      add('actions', 'Az orthostaticus hypotonia hátterének kivizsgálása, ok szerinti ellátás.', 'SOP 5.5');
+    } else if (o.pots) {
+      r.workingDx.push({ text: 'POTS lehetősége (pulzusemelkedés ≥30/perc, hypotonia nélkül)', ref: 'SOP 5.2 táblázat; Freeman et al. 2011' });
+      add('actions', 'POTS gyanú – ambuláns kivizsgálás mérlegelése.', 'SOP 5.2 táblázat');
+    } else {
+      r.path.push('Orthostasis teszt negatív → s-EVS okok mérlegelése');
+      alert('info', 'Negatív pozícionális és orthostasis teszt: az s-EVS okainak mérlegelése javasolt (állítsa a besorolást „nem triggerelhető”-re, ha indokolt).', 'SOP 5.5');
+    }
+    r.stage = 'done';
+    return r;
+  }
+
+  var api = {
+    evaluate: evaluate,
+    hints: hints,
+    harmony: harmony,
+    abcd2: abcd2,
+    orthostasis: orthostasis,
+    positional: positional,
+  };
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.VertigoLogic = api;
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+  <script>
+/*
+ * Referencia-tartalom a „Szédüléssel jelentkező beteg ellátása” SOP (ÉPC-HK SBO, v1.0) alapján,
+ * tömörített, átfogalmazott formában. A fejezetszámok az SOP fejezeteire utalnak.
+ */
+(function (root) {
+  'use strict';
+
+  var SOP = {
+    title: 'Szédüléssel jelentkező beteg ellátása',
+    issuer: 'ÉPC-HK Sürgősségi Betegellátó Osztály',
+    version: 'v1.0, 2023.09.01.',
+    validUntil: '2025-12-31',
+  };
+
+  // 1. melléklet – szédülést okozó gyógyszerek
+  var DRUGS = [
+    'Alkohol', 'Antiarrhythmiás szerek (Class I)', 'Antiepileptikumok', 'Antihisztaminok', 'Vérnyomáscsökkentők',
+    'Influenza elleni szerek, gombaellenes szerek, kinolon származékok', 'ADHD gyógyszerek', 'Antiparkinson szerek',
+    'Digitalis származékok', 'Dipyridamol', 'Narcoticumok', 'Nitrátok', 'PDE-5 gátlók', 'Izomrelaxánsok',
+    'SGLT-2 gátlók', 'Antikolinerg szerek', 'Spasmolyticumok', 'Benzodiazepinek', 'Béta-blokkolók', 'Lítium',
+    'Aminoglikozidok',
+  ];
+
+  // 8. fejezet – hazabocsátott betegeknek áthidaló, tüneti terápia
+  var THERAPY = [
+    { group: 'Antihisztaminok', items: [
+      'Arlevert (40 mg dimenhydrinat + 20 mg cinnarizin): 3×1 tabletta p.o.',
+      'vagy Daedalon (dimenhydrinat): 50 mg p.o. 4–6 óránként',
+    ] },
+    { group: 'Benzodiazepinek', items: [
+      'Xanax, Frontin (alprazolam): 0,5 mg p.o. 8 óránként',
+      'vagy Rivotril (clonazepam): 0,25–0,5 mg p.o. 8–12 óránként',
+    ] },
+    { group: 'Antiemetikum', items: [
+      'Cerucal (metoclopramid): 10 mg p.o. 6 óránként',
+    ] },
+  ];
+
+  var VIDEOS = [
+    { label: 'Epley-manőver – magyar nyelvű SOTE oktatóvideó', url: 'https://youtu.be/GIyc2PPahvA' },
+    { label: 'Ülve végezhető Epley – angol nyelvű', url: 'https://www.youtube.com/watch?v=mQR6b7CAiqk' },
+    { label: 'Barbecue-manőver – oktatóvideó', url: 'https://youtu.be/XZg7dko-MqM' },
+  ];
+
+  var REFERENCE = [
+    {
+      id: 'primary', title: 'Primer vizsgálat és anamnézis (5.1, 7.1)',
+      html:
+        '<p><b>Minden stabil betegnél:</b> paraméterek (RR, pulzus, SpO₂), ± orthostasis teszt; fizikális és neurológiai vizsgálat; releváns anamnézis; vénás vérgáz; EKG.</p>' +
+        '<p><b>Labor:</b> vércukor, vesefunkció, szérum Na és K, CRP, nagy vérkép – a szekunder (nem neurológiai / nem fül-orr-gégészeti) okok feltárására.</p>' +
+        '<p><b>Anamnézis:</b> friss fejsérülés; kezdet; folyamatos vagy epizodikus; mi provokálja/enyhíti (fejhelyzet, irány); halláscsökkenés; kísérő tünetek és „red flag”-ek (hányinger, hányás, fejfájás, kettőslátás, palpitáció, mellkasi fájdalom, dyspnoe, syncope); korábbi stroke, ritmuszavar, AMI, kivizsgálatlan syncope, ismert szédüléses kórkép (BPPV, Ménière); gyulladásra utaló panasz.</p>' +
+        '<p><b>Paradigmaváltás (4.):</b> a panasz jellege (forgó vs. nem forgó) nem függ össze megbízhatóan az okkal – a besorolás az <b>időbeli lefolyás</b> és a <b>triggerelhetőség</b> alapján történik.</p>',
+    },
+    {
+      id: 'syndromes', title: 'Vestibularis szindrómák (5.2)',
+      html:
+        '<ul>' +
+        '<li><b>AVS</b> (~30%): akut, folyamatos, ≥24 órán át fennálló szédülés (napoktól hetekig); hányinger, hányás, nystagmus, posturalis instabilitás; nyugalomban is fennáll, fejmozgásra rosszabbodhat. Gyakori: vestibularis neuronitis; veszélyes: vertebrobasilaris stroke.</li>' +
+        '<li><b>s-EVS</b> (~40%): spontán, kiváltó tényező nélküli rohamok, percektől órákig; nyugalomban többnyire tünetmentes. Gyakori: vestibularis migrén; veszélyes: vertebrobasilaris TIA; egyéb: ritmuszavar, tüdőembólia, pánikroham, Ménière.</li>' +
+        '<li><b>t-EVS</b> (~30%): egyértelmű pozícionális provokáció, másodpercektől percekig; ágy mellett (Dix-Hallpike, supine roll) provokálható. Gyakori: BPPV, orthostaticus hypotonia; veszélyes: életveszélyes hátterű orthostaticus hypotonia, CPPV; egyéb: a. vertebralis kompresszió, carotis sinus szindróma, POTS.</li>' +
+        '</ul>',
+    },
+    {
+      id: 'nystagmus', title: 'Spontán nystagmus vizsgálata (6.1.1)',
+      html:
+        '<p><b>Irány:</b> a gyors komponens szerint nevezzük el (balra / jobbra csapó, tekintésirányú). A lassú komponens a vestibularis károsodás oldalára mutat.</p>' +
+        '<p><b>Sík:</b> horizontális, vertikális, rotatoros, horizonto-rotatoros, vertico-rotatoros.</p>' +
+        '<p><b>Intenzitás:</b> I. fokú – csak a gyors komponens irányába nézve; II. fokú – előre tekintéskor is; III. fokú – ellentétes irányba nézve is (legsúlyosabb, akut kórképekben).</p>',
+    },
+    {
+      id: 'statokinetic', title: 'Statokinetikus próbák, harmonikus tünetcsoport (6.1.2)',
+      html:
+        '<ul>' +
+        '<li><b>Romberg:</b> csukott szem, összezárt láb. Perifériás laesio: a laesio oldalára dől. Hátradőlés, törzsataxia → centrális. Felállni képtelen beteget ülve vizsgáljuk.</li>' +
+        '<li><b>Bárány-féle mutatópróba:</b> kinyújtott karral a vizsgáló ujjára mutat, csukott szemmel leengedi, majd visszaemeli. A félremutatás a károsodott oldal felé történik.</li>' +
+        '<li><b>Vakjárás:</b> csukott szemmel egyenes vonalon. Perifériás laesio: a laesio irányába deviál; centrális: kifejezett ataxia.</li>' +
+        '</ul>' +
+        '<p><b>Harmonikus</b> (perifériás): a dőlés/félremutatás iránya <u>ellentétes</u> a nystagmus gyors komponensével. <b>Diszharmonikus</b> (centrális): <u>azonos</u> irányú.</p>',
+    },
+    {
+      id: 'hints', title: 'HINTS+ (6.2–6.4)',
+      html:
+        '<p><b>Head Impulse Test (Halmágyi):</b> a beteg fix pontra néz (vizsgáló orra), fejét gyorsan, kis amplitúdóval kb. 20°-kal elfordítjuk, mindkét oldalra. Perifériás károsodásnál a károsodott oldal felé fordításkor <b>korrekciós szakkád</b> jelenik meg. Centrális károsodásnál nincs szakkád (a teszt „negatív”). Csak aktuálisan szédülő betegnél értelmes; nyaki sérülés (gyanúja) vagy kooperációképtelenség esetén nem végezhető.</p>' +
+        '<p><b>Nystagmus:</b> iránytartó, horizontális / horizonto-rotatoros → perifériás; vertikális, tisztán rotatoros vagy tekintésirányú (irányváltó) → centrális.</p>' +
+        '<p><b>Skew deviation (test of skew / szemtakarásos teszt):</b> felváltva letakarjuk a szemeket fixálás közben; ha a takarás alól felszabaduló szem vertikális szakkáddal áll be → centrális laesio.</p>' +
+        '<p><b>Tájékozódó hallásvizsgálat:</b> ujjbegyek összedörzsölése a hallójárat előtt, majd távolítás. Szédülő betegnél az <b>akut féloldali halláscsökkenés</b> centrális okra (AICA-infarktus) utalhat; fülzúgás + mély hangokon halláscsökkenés → Ménière.</p>' +
+        '<table class="ref-table"><thead><tr><th>Perifériás laesio</th><th>Centrális laesio</th></tr></thead><tbody>' +
+        '<tr><td>Harmonikus tünetcsoport</td><td>Diszharmonikus tünetcsoport</td></tr>' +
+        '<tr><td>HIT: korrekciós szakkád</td><td>HIT: negatív</td></tr>' +
+        '<tr><td>Nystagmus: horizontális / horizonto-rotatoros, iránytartó</td><td>Nystagmus: tekintésirányú / vertikális</td></tr>' +
+        '<tr><td>Skew: negatív</td><td>Skew: pozitív</td></tr>' +
+        '<tr><td>Nincs halláscsökkenés</td><td>Akut féloldali halláscsökkenés</td></tr>' +
+        '</tbody></table>',
+    },
+    {
+      id: 'positional', title: 'Pozícionális tesztek és repozíciós manőverek (6.5)',
+      html:
+        '<p>Csak nyugalomban tünetmentes (vagy közel tünetmentes) betegnél, ha az anamnézis pozícionális triggerre utal. Folyamatosan, erősen szédülő betegnél értelmetlen.</p>' +
+        '<p><b>Dix-Hallpike:</b> az ágyon ülő beteg fejét 45°-kal oldalra fordítjuk, majd gyorsan hanyatt döntjük úgy, hogy a feje kb. 35–40°-ban lelógjon. Mindkét oldalra. <i>Tipikus BPPV:</i> néhány másodperc latencia, heves szédülés, horizonto-rotatoros nystagmus, kb. egy percen belül elmúlik. <i>Centrálisra utal:</i> nincs latencia, irányváltó nystagmus, vagy a szédülés idővel nem csökken → neurológiai konzílium.</p>' +
+        '<p><b>Epley-manőver (posterior BPPV):</b></p><ol>' +
+        '<li>Indítás az érintett oldali Dix-Hallpike helyzetből (az az oldal, amely felé fordításkor a szédülés provokálódik): fej 45°-ban oldalra, hanyatt döntés, fej kb. 40°-ban lelóg; várunk, míg a szédülés elmúlik (kb. 30–60 mp).</li>' +
+        '<li>A lógó fejet középállásba fordítjuk, 10–15 mp-ig tartjuk.</li>' +
+        '<li>Az ellenkező oldalra fordítjuk, kb. 30 mp-ig tartjuk.</li>' +
+        '<li>A beteg törzzsel a fej után oldalra fordul, a fejet további 90°-kal fordítjuk – az arc a föld felé néz; 30 mp.</li>' +
+        '<li>Lefelé néző fejjel, a lábakat az ágy mellé kinyújtva felültetjük (a fej pozícióját tartva), majd a fejet egyenesbe fordítjuk; kb. 20 mp.</li>' +
+        '</ol>' +
+        '<p><b>„Supine roll” teszt (horizontális ívjárat):</b> hanyatt fekvő betegnél a fejet jobbra, majd balra fordítjuk. BPPV-ben mindkét oldalon a talaj felé csapó nystagmus jelenik meg, az érintett oldal felé fordításkor intenzívebben; rövidebb latencia, hosszabb időtartam, mint pc-BPPV-ben.</p>' +
+        '<p><b>Barbecue-manőver (horizontális ívjárat BPPV terápiája):</b> a beteg a hossztengelye körül forog – először a fejét fordítja (az érintett oldal felé kezdve), majd a teste követi.</p>',
+    },
+    {
+      id: 'imaging', title: 'Képalkotás (7.2)',
+      html:
+        '<p><b>Koponya CT:</b> SBO-n a szédülés miatt végzett CT diagnosztikus értéke nagyon alacsony; kis hátsó skálai ischaemiára érzéketlen, <b>negatív natív CT nem zárja ki a vertebrobasilaris stroke-ot</b>. Akkor javasolt, ha erős fejfájás vagy fokális neurológiai tünet társul (ICH kizárására) – izolált szédülésnél nem.</p>' +
+        '<p><b>Koponya MR:</b> érzékenyebb. Centrális eredetű AVS: DWI + MRA; vertebrobasilaris TIA gyanú: MRA. Többnyire neurológussal egyeztetve, osztályos felvételt követően.</p>',
+    },
+    {
+      id: 'therapy', title: 'Sürgősségi tüneti terápia (8.)',
+      html: null, // dinamikusan, THERAPY-ból
+    },
+    {
+      id: 'diseases', title: 'Gyakoribb kórképek (3. melléklet)',
+      html:
+        '<p><b>Ménière-betegség:</b> endolympha hydrops. Epizodikus forgó szédülés (20 perc – 12/24 óra), tinnitus, fluktuáló, kezdetben mélyhangú, progresszív halláscsökkenés; teltségérzés. Kritériumok: ≥2 spontán epizód 20 perc – 12 óra; audiometriával igazolt alacsony-közepes frekvenciás szenzorineurális halláscsökkenés az érintett fülön; fluktuáló hallástünetek; más vestibularis kórkép nem magyarázza jobban. Akut epizód: antihisztamin, benzodiazepin, antiemetikum, diuretikum.</p>' +
+        '<p><b>Vestibularis neuronitis:</b> feltehetően virális/postinfekciós; hirtelen kezdet, napokig tartó szédülés, heves vegetatív tünetek, harmonikus tünetcsoport; pozitív HIT, I–III. fokú horizontális vagy rotatoros nystagmus; Romberg negatív, a járás lassú, óvatos, széles alapú. Centrális ok kizárása után tüneti terápia, verbális megnyugtatás; FOG ambulancia; heves vegetatív tünetek esetén hospitalizáció; később vestibularis rehabilitáció.</p>' +
+        '<p><b>Vestibularis / agytörzsi migrén:</b> ismétlődő roham-szédülés változatos kísérő tünetekkel (ataxia, látászavar, fejfájás, hányinger, hányás, tudatzavar, meglassultság); időtartam másodpercektől napokig. A leggyakoribb s-EVS. Első rohamnál az akut cerebrovascularis kórképet ki kell zárni. Akut epizód: NSAID + antiemetikum. Agytörzsi migrénben triptán és ergotamin nem javasolt.</p>',
+    },
+    {
+      id: 'leaflet', title: 'Betegtájékoztató – BPPV (2. melléklet)',
+      html:
+        '<p>A BPPV (jóindulatú, rohamokban jelentkező, fejhelyzet-változással összefüggő forgó szédülés) oka, hogy a belső fül félkörös ívjárataiba apró mészkristályok kerülnek, és bizonyos fejmozdulatokra elmozdulnak.</p>' +
+        '<p>Kezelés nélkül is általában néhány hét–hónap alatt, maradványtünet nélkül megszűnik; speciális manőverekkel a gyógyulás gyorsítható. A kezelőorvos az érintett oldalnak és ívjáratnak megfelelő gyakorlatot javasolja. A gyakorlatok után átmenetileg fokozódhat a szédülés, hányinger, bizonytalanság. Lehetőleg naponta 3–4 alkalommal végezze, amíg a panaszok megszűnnek.</p>' +
+        '<ul><li>Kerülje a szédülést provokáló fejhelyzeteket!</li><li>Végezze a javasolt manővereket!</li><li>Kerülje az alvást az érintett oldalon!</li>' +
+        '<li>Ébredés után lassan üljön fel, és üljön az ágy szélén egy percig felállás előtt!</li><li>Szedje a javasolt gyógyszereket!</li>' +
+        '<li>Ne vezessen, amíg a panaszai teljesen meg nem szűnnek!</li></ul>',
+    },
+    {
+      id: 'sources', title: 'Források',
+      html:
+        '<ul>' +
+        '<li>ÉPC-HK SBO: Szédüléssel jelentkező beteg ellátása, SOP v1.0 (2023.09.01.) – az alkalmazás döntési fája ezen alapul.</li>' +
+        '<li>Edlow JA et al. Guidelines for reasonable and appropriate care in the emergency department 3 (GRACE-3): Acute dizziness and vertigo in the emergency department. Acad Emerg Med 2023;30:442–486. – az SOP irodalomjegyzékében is szerepel; a „nystagmus nélküli AVS” megjegyzés innen származik.</li>' +
+        '<li>Johnston SC et al. Validation and refinement of scores to predict very early stroke risk after transient ischaemic attack. Lancet 2007;369:283–292. – ABCD2 pontozás és kockázati sávok (az SOP hivatkozik az ABCD2-re, a pontozást nem közli).</li>' +
+        '<li>Freeman R et al. Consensus statement on the definition of orthostatic hypotension, neurally mediated syncope and the postural tachycardia syndrome. Clin Auton Res 2011;21:69–72. – orthostaticus hypotonia (szisztolés ≥20 / diasztolés ≥10 Hgmm esés 3 percen belül) és POTS (≥30/perc pulzusemelkedés) határértékei (az SOP nem közli).</li>' +
+        '</ul>',
+    },
+  ];
+
+  var api = { SOP: SOP, DRUGS: DRUGS, THERAPY: THERAPY, VIDEOS: VIDEOS, REFERENCE: REFERENCE };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.VertigoContent = api;
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+  <script>
+/* Felhasználói felület – a döntési logika a logic.js-ben van. */
+(function () {
+  'use strict';
+
+  var L = window.VertigoLogic;
+  var C = window.VertigoContent;
+
+  var state = {};
+  var current = 'stability';
+  var view = 'exam'; // exam | reference
+
+  var YN = [{ v: 'yes', l: 'Igen' }, { v: 'no', l: 'Nem' }];
+  var LR = [{ v: 'left', l: 'Balra' }, { v: 'right', l: 'Jobbra' }];
+
+  function esc(t) {
+    return String(t === undefined || t === null ? '' : t)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Lépések                                                           */
+  /* ---------------------------------------------------------------- */
+  var STEPS = [
+    {
+      id: 'stability', title: 'Stabilitás, primer vizsgálat', ref: 'SOP 5.1, 7.1',
+      fields: [
+        { type: 'yn', key: 'unstable', label: 'Cardiorespiratoricusan instabil a beteg?' },
+        { type: 'note', when: function (s) { return s.unstable === 'yes'; }, level: 'danger', html: 'Ellátás ABCDE séma szerint – az SOP ezt nem részletezi.' },
+        { type: 'heading', label: 'Primer vizsgálat (minden stabil betegnél)' },
+        { type: 'check', key: 'prim.vitals', label: 'Paraméterek: vérnyomás, pulzus, szaturáció' },
+        { type: 'check', key: 'prim.physical', label: 'Fizikális és neurológiai vizsgálat' },
+        { type: 'check', key: 'prim.history', label: 'Releváns anamnézis' },
+        { type: 'check', key: 'prim.vbg', label: 'Vénás vérgáz' },
+        { type: 'check', key: 'prim.ekg', label: 'EKG' },
+        { type: 'heading', label: 'Labor' },
+        { type: 'check', key: 'lab.glucose', label: 'Vércukor' },
+        { type: 'check', key: 'lab.renal', label: 'Vesefunkció' },
+        { type: 'check', key: 'lab.nak', label: 'Szérum Na, K' },
+        { type: 'check', key: 'lab.crp', label: 'CRP' },
+        { type: 'check', key: 'lab.cbc', label: 'Nagy vérkép' },
+        { type: 'heading', label: '± Orthostasis teszt' },
+        { type: 'orth' },
+      ],
+    },
+    {
+      id: 'history', title: 'Anamnézis', ref: 'SOP 5.1',
+      fields: [
+        { type: 'yn', key: 'hx.trauma', label: 'Történt koponyatrauma a közelmúltban?' },
+        { type: 'text', key: 'hx.onset', label: 'Mikor kezdődött a szédülés?' },
+        { type: 'text', key: 'hx.provoke', label: 'Mi provokálja / enyhíti? Befolyásolja a fej helyzete (melyik irány)?' },
+        { type: 'yn', key: 'hx.hearing', label: 'Van halláscsökkenés?' },
+        { type: 'yn', key: 'hx.tinnitus', label: 'Van fülzúgás?' },
+        { type: 'heading', label: 'Kísérő tünetek / „red flag”' },
+        { type: 'check', key: 'rf.nausea', label: 'Hányinger' },
+        { type: 'check', key: 'rf.vomiting', label: 'Hányás' },
+        { type: 'check', key: 'rf.headache', label: 'Fejfájás' },
+        { type: 'check', key: 'rf.diplopia', label: 'Kettőslátás' },
+        { type: 'check', key: 'rf.palpitation', label: 'Palpitáció' },
+        { type: 'check', key: 'rf.chestPain', label: 'Mellkasi fájdalom' },
+        { type: 'check', key: 'rf.dyspnea', label: 'Dyspnoe' },
+        { type: 'check', key: 'rf.syncope', label: 'Syncope' },
+        { type: 'heading', label: 'Előzmények' },
+        { type: 'check', key: 'pmh.stroke', label: 'Korábbi stroke' },
+        { type: 'check', key: 'pmh.arrhythmia', label: 'Ritmuszavar' },
+        { type: 'check', key: 'pmh.mi', label: 'Szívinfarktus' },
+        { type: 'check', key: 'pmh.syncope', label: 'Kivizsgálatlan syncope' },
+        { type: 'text', key: 'pmh.vertigo', label: 'Korábban diagnosztizált szédüléses kórkép (pl. BPPV, Ménière)' },
+        { type: 'yn', key: 'hx.inflammation', label: 'Gyulladásos betegségre utaló egyéb panasz?' },
+      ],
+    },
+    {
+      id: 'focal', title: 'Fokális neurológiai tünet', ref: '1. ábra (2)',
+      fields: [
+        { type: 'note', level: 'info', html: 'Egyértelmű, novum fokális tünet: agyidegbénulás, dysarthria, végtagataxia, kettőslátás, tekintésbénulás.' },
+        { type: 'yn', key: 'focal', label: 'Van egyértelmű, novum fokális neurológiai tünet?' },
+        { type: 'note', when: function (s) { return s.focal === 'yes'; }, level: 'danger', html: '<b>Neurológus értesítése, ellátás a stroke protokoll szerint.</b>' },
+      ],
+    },
+    {
+      id: 'nonneuro', title: 'Nem neurológiai ok?', ref: '1. ábra (3)',
+      fields: [
+        { type: 'yn', key: 'nonneuro', label: 'A vizsgálatok alapján nem neurológiai ok valószínű? (pl. ritmuszavar, bradycardia, ion-/elektrolitzavar, hyponatraemia)' },
+        { type: 'text', key: 'nonneuro.text', label: 'Milyen ok?', when: function (s) { return s.nonneuro === 'yes'; } },
+        { type: 'heading', label: 'Centrális jelek ellenőrzése', when: function (s) { return s.nonneuro === 'yes'; } },
+        { type: 'yn', key: 'cs.nystagmus', label: 'Kóros nystagmus?', when: function (s) { return s.nonneuro === 'yes'; } },
+        { type: 'yn', key: 'cs.dysmetria', label: 'Felső végtagi dysmetria?', when: function (s) { return s.nonneuro === 'yes'; } },
+        { type: 'yn', key: 'cs.truncal', label: 'Törzsataxia ülő helyzetben?', when: function (s) { return s.nonneuro === 'yes'; } },
+      ],
+    },
+    {
+      id: 'classify', title: 'Szindróma besorolása', ref: 'SOP 5.2, 1. ábra (4–5)',
+      fields: [
+        { type: 'yn', key: 'continuous', label: 'A szédülés folyamatos, és jelenleg is fennáll?' },
+        { type: 'yn', key: 'triggered', label: 'A szédülés (pozícionálisan) triggerelhető?', when: function (s) { return s.continuous === 'no'; } },
+        { type: 'note', level: 'info', html: '<b>AVS:</b> akut, folyamatos, napokig tartó, a vizsgálat alatt is fennálló. <b>s-EVS:</b> spontán rohamok percektől órákig, kiváltó tényező nélkül. <b>t-EVS:</b> egyértelmű pozícionális provokáció, másodpercektől percekig. Az s-EVS első epizódja kezdetben nem mindig különíthető el az AVS-től.' },
+      ],
+    },
+    {
+      id: 'avs', title: 'AVS – előzetes kérdések', ref: 'SOP 5.3, 2. ábra',
+      fields: [
+        { type: 'yn', key: 'avs.trauma', label: 'Trauma (fejsérülés) felmerül?' },
+        { type: 'yn', key: 'avs.headache', label: 'Erős, folyamatosan fennálló / erősödő fejfájás?' },
+        { type: 'choice', key: 'avs.ct', label: 'Natív koponya CT eredménye', when: function (s) { return s['avs.trauma'] === 'yes' || s['avs.headache'] === 'yes'; },
+          options: [{ v: 'neg', l: 'Nincs ICH / SAV' }, { v: 'ich', l: 'ICH / SAV igazolódott' }] },
+        { type: 'yn', key: 'avs.drug', label: 'Újonnan bevezetett gyógyszer / gyógyszerhatás felmerül?' },
+        { type: 'drugs', when: function (s) { return s['avs.drug'] === 'yes'; } },
+        { type: 'yn', key: 'avs.drugClear', label: 'A panaszok kezdete egyértelműen összefügg az új gyógyszerrel?', when: function (s) { return s['avs.drug'] === 'yes'; } },
+      ],
+    },
+    {
+      id: 'hints', title: 'AVS – HINTS+ és statokinetikus próbák', ref: 'SOP 6.1–6.4',
+      fields: [
+        { type: 'note', level: 'info', html: 'Csak aktuálisan szédülő betegnél. Nyaki sérülés (gyanúja) vagy kooperációképtelenség esetén a HIT nem végezhető.' },
+        { type: 'choice', key: 'hints.hit', label: 'Head Impulse Test (Halmágyi)', options: [
+          { v: 'saccade', l: 'Korrekciós szakkád (perifériás)' }, { v: 'normal', l: 'Negatív – nincs szakkád (centrális)' }, { v: 'nd', l: 'Nem végezhető' }] },
+        { type: 'choice', key: 'hints.hitSide', label: 'Szakkád a fej melyik oldalra fordításakor? (= károsodott oldal)', options: LR,
+          when: function (s) { return s['hints.hit'] === 'saccade'; } },
+        { type: 'choice', key: 'hints.nyst', label: 'Spontán nystagmus jellege', options: [
+          { v: 'horiz_unidir', l: 'Iránytartó, horizontális / horizonto-rotatoros' },
+          { v: 'vertical', l: 'Vertikális' }, { v: 'torsional', l: 'Tisztán rotatoros' },
+          { v: 'gaze_evoked', l: 'Tekintésirányú (irányváltó)' }, { v: 'none', l: 'Nincs nystagmus' }, { v: 'nd', l: 'Nem vizsgálható' }] },
+        { type: 'choice', key: 'hints.nystDir', label: 'Gyors komponens iránya', options: LR,
+          when: function (s) { return s['hints.nyst'] === 'horiz_unidir'; } },
+        { type: 'choice', key: 'hints.nystGrade', label: 'Intenzitás', options: [
+          { v: 'I', l: 'I. fok – csak a gyors komponens irányába nézve' }, { v: 'II', l: 'II. fok – előre nézve is' }, { v: 'III', l: 'III. fok – ellentétes irányba nézve is' }],
+          when: function (s) { return s['hints.nyst'] === 'horiz_unidir'; } },
+        { type: 'choice', key: 'hints.skew', label: 'Skew deviation (szemtakarásos teszt)', options: [
+          { v: 'neg', l: 'Negatív' }, { v: 'pos', l: 'Pozitív – vertikális beállító szakkád' }, { v: 'nd', l: 'Nem végezhető' }] },
+        { type: 'choice', key: 'hints.hearing', label: 'Tájékozódó hallásvizsgálat', options: [
+          { v: 'none', l: 'Nincs új halláscsökkenés' }, { v: 'acute_unilateral', l: 'Akut féloldali halláscsökkenés' }, { v: 'nd', l: 'Nem vizsgálható' }] },
+        { type: 'heading', label: 'Statokinetikus próbák (harmonikus / diszharmonikus)' },
+        { type: 'choice', key: 'stat.romberg', label: 'Romberg-próba', options: [
+          { v: 'neg', l: 'Negatív' }, { v: 'sway', l: 'Ingadozik' }, { v: 'fall_left', l: 'Balra dől' }, { v: 'fall_right', l: 'Jobbra dől' },
+          { v: 'fall_back', l: 'Hátradől' }, { v: 'unable', l: 'Nem végezhető' }] },
+        { type: 'choice', key: 'stat.barany', label: 'Bárány-féle mutatópróba – félremutatás', options: [
+          { v: 'none', l: 'Nincs' }, { v: 'left', l: 'Balra' }, { v: 'right', l: 'Jobbra' }, { v: 'nd', l: 'Nem végezhető' }] },
+        { type: 'choice', key: 'stat.gait', label: 'Vakjárás', options: [
+          { v: 'normal', l: 'Egyenes' }, { v: 'dev_left', l: 'Balra deviál' }, { v: 'dev_right', l: 'Jobbra deviál' },
+          { v: 'ataxia', l: 'Kifejezett ataxia' }, { v: 'unable', l: 'Nem járóképes' }] },
+        { type: 'yn', key: 'stat.truncal', label: 'Törzsataxia?' },
+        { type: 'hintsBox' },
+        { type: 'heading', label: 'Súlyosság', when: function (s, r) { return r.hints && r.hints.result === 'peripheral'; } },
+        { type: 'yn', key: 'avs.severe', label: 'Súlyos eset? (folyamatos parenterális hányáscsillapítás igénye, vagy a szédülés miatt teljes önellátási képtelenség)',
+          when: function (s, r) { return r.hints && r.hints.result === 'peripheral'; } },
+      ],
+    },
+    {
+      id: 'sevs', title: 's-EVS – kivizsgálás', ref: 'SOP 5.4, 3. ábra',
+      fields: [
+        { type: 'note', level: 'info', html: 'A betegek érkezéskor gyakran már tünetmentesek – az anamnézis kiemelten fontos.' },
+        { type: 'heading', label: 'ABCD2 score (segédeszköz a TIA-kockázathoz)' },
+        { type: 'num', key: 'abcd2.age', label: 'Életkor (év)' },
+        { type: 'num2', keys: ['abcd2.sys', 'abcd2.dia'], label: 'Első mért vérnyomás (Hgmm)', ph: ['szisztolés', 'diasztolés'] },
+        { type: 'choice', key: 'abcd2.clinical', label: 'Klinikai tünet', options: [
+          { v: 'weakness', l: 'Féloldali gyengeség' }, { v: 'speech', l: 'Beszédzavar gyengeség nélkül' }, { v: 'none', l: 'Egyik sem' }] },
+        { type: 'choice', key: 'abcd2.dur', label: 'Tünetek időtartama', options: [
+          { v: '60+', l: '≥60 perc' }, { v: '10-59', l: '10–59 perc' }, { v: '<10', l: '<10 perc' }] },
+        { type: 'yn', key: 'abcd2.dm', label: 'Diabetes mellitus?' },
+        { type: 'abcd2Box' },
+        { type: 'heading', label: 'Klinikai döntés' },
+        { type: 'choice', key: 'sevs.tiaRisk', label: 'Az anamnézis alapján a vertebrobasilaris TIA kockázata', options: [
+          { v: 'high', l: 'Magas' }, { v: 'low', l: 'Alacsony' }] },
+        { type: 'yn', key: 'sevs.inArea', label: 'ÉPC-HK ellátási területéhez tartozik a beteg?', when: function (s) { return s['sevs.tiaRisk'] === 'high'; } },
+        { type: 'heading', label: 'Kísérő tünetek', when: function (s) { return s['sevs.tiaRisk'] === 'low'; } },
+        { type: 'check', key: 'sevs.headache', label: 'Epizódokban / szédülés után jelentkező erős fejfájás', when: function (s) { return s['sevs.tiaRisk'] === 'low'; } },
+        { type: 'check', key: 'sevs.tinnitus', label: 'Fülzúgás, halláscsökkenés', when: function (s) { return s['sevs.tiaRisk'] === 'low'; } },
+        { type: 'check', key: 'sevs.anxiety', label: 'Nagyfokú szorongás, bizonytalanságérzés, szokatlan aprólékosságú beszámoló, gyakori SBO-látogatás', when: function (s) { return s['sevs.tiaRisk'] === 'low'; } },
+        { type: 'choice', key: 'sevs.course', label: 'Lefolyás', when: function (s) { return s['sevs.tiaRisk'] === 'low'; }, options: [
+          { v: 'mild', l: 'Megszűnt / nem ismétlődik / enyhe, ambulánsan menedzselhető' },
+          { v: 'severe', l: 'Súlyos, gyakran ismétlődő, ambulánsan nem menedzselhető' }] },
+      ],
+    },
+    {
+      id: 'tevs', title: 't-EVS – pozícionális tesztek', ref: 'SOP 5.5, 6.5, 3. ábra',
+      fields: [
+        { type: 'choice', key: 'tevs.state', label: 'A beteg jelenlegi állapota', options: [
+          { v: 'calm', l: 'Panaszmentes / közel panaszmentes' }, { v: 'severe', l: 'Folyamatosan, erősen szédül' }] },
+        { type: 'choice', key: 'dh.right', label: 'Dix-Hallpike – JOBB oldal', when: function (s) { return s['tevs.state'] === 'calm'; }, options: [
+          { v: 'neg', l: 'Negatív' }, { v: 'typical', l: 'Tipikus: latencia, horizonto-rotatoros ny., <1 perc' },
+          { v: 'atypical', l: 'Atípusos: nincs latencia / irányváltó / nem csökken' }, { v: 'nd', l: 'Nem végezhető' }] },
+        { type: 'choice', key: 'dh.left', label: 'Dix-Hallpike – BAL oldal', when: function (s) { return s['tevs.state'] === 'calm'; }, options: [
+          { v: 'neg', l: 'Negatív' }, { v: 'typical', l: 'Tipikus: latencia, horizonto-rotatoros ny., <1 perc' },
+          { v: 'atypical', l: 'Atípusos: nincs latencia / irányváltó / nem csökken' }, { v: 'nd', l: 'Nem végezhető' }] },
+        { type: 'choice', key: 'roll', label: '„Supine roll” teszt', when: function (s) { return s['tevs.state'] === 'calm'; }, options: [
+          { v: 'neg', l: 'Negatív' },
+          { v: 'geo_right', l: 'Geotrop ny. mindkét oldalon, JOBBRA fordításkor erősebb' },
+          { v: 'geo_left', l: 'Geotrop ny. mindkét oldalon, BALRA fordításkor erősebb' },
+          { v: 'atypical', l: 'Egyéb / atípusos mintázat' }, { v: 'nd', l: 'Nem végezhető' }] },
+        { type: 'choice', key: 'tevs.severity', label: 'Súlyosság', when: function (s, r) { return r.positional.result === 'bppv'; }, options: [
+          { v: 'mild', l: 'Enyhe, ambulánsan menedzselhető' }, { v: 'severe', l: 'Súlyos, ambulánsan nem menedzselhető' }] },
+        { type: 'heading', label: 'Orthostasis teszt', when: function (s, r) { return r.positional.result === 'negative'; } },
+        { type: 'orth', when: function (s, r) { return r.positional.result === 'negative'; } },
+      ],
+    },
+    {
+      id: 'therapy', title: 'Terápia és tájékoztatás', ref: 'SOP 8',
+      fields: [{ type: 'therapy' }],
+    },
+    {
+      id: 'summary', title: 'Összegzés / dokumentáció', ref: '',
+      fields: [{ type: 'summary' }],
+    },
+  ];
+
+  var STAGE_TO_STEP = {
+    stability: 'stability', focal: 'focal', nonneuro: 'nonneuro', classify: 'classify',
+    avs_pre: 'avs', hints: 'hints', avs_dispo: 'hints', sevs: 'sevs', tevs: 'tevs', done: 'summary',
+  };
+
+  function visibleSteps(r) {
+    var s = state;
+    return STEPS.filter(function (st) {
+      switch (st.id) {
+        case 'focal': return s.unstable === 'no';
+        case 'nonneuro': return s.unstable === 'no' && s.focal === 'no';
+        case 'classify': return s.unstable === 'no' && s.focal === 'no' && r.category !== 'SECONDARY' && !!s.nonneuro &&
+          (r.stage === 'classify' || ['AVS', 'SEVS', 'TEVS'].indexOf(r.category) >= 0);
+        case 'avs': return r.category === 'AVS';
+        case 'hints': return r.category === 'AVS' && r.stage !== 'avs_pre' && !(s['avs.ct'] === 'ich' && (s['avs.trauma'] === 'yes' || s['avs.headache'] === 'yes'));
+        case 'sevs': return r.category === 'SEVS';
+        case 'tevs': return r.category === 'TEVS';
+        case 'therapy': return ['AVS', 'SEVS', 'TEVS'].indexOf(r.category) >= 0;
+        default: return true;
+      }
+    });
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Mező-renderelők                                                   */
+  /* ---------------------------------------------------------------- */
+  function radios(key, options, label) {
+    var v = state[key];
+    return '<fieldset class="field"><legend>' + esc(label) + '</legend><div class="seg">' +
+      options.map(function (o) {
+        var id = 'f_' + key.replace(/\W/g, '_') + '_' + o.v.replace(/\W/g, '_');
+        return '<input type="radio" id="' + id + '" name="' + esc(key) + '" value="' + esc(o.v) + '" data-key="' + esc(key) + '"' + (v === o.v ? ' checked' : '') + '>' +
+          '<label for="' + id + '">' + esc(o.l) + '</label>';
+      }).join('') +
+      (v ? '<button type="button" class="clear" data-clear="' + esc(key) + '" title="Válasz törlése">×</button>' : '') +
+      '</div></fieldset>';
+  }
+
+  function renderField(f, r) {
+    if (f.when && !f.when(state, r)) return '';
+    switch (f.type) {
+      case 'yn': return radios(f.key, YN, f.label);
+      case 'choice': return radios(f.key, f.options, f.label);
+      case 'check':
+        return '<label class="check"><input type="checkbox" data-key="' + esc(f.key) + '"' + (state[f.key] ? ' checked' : '') + '> ' + esc(f.label) + '</label>';
+      case 'text':
+        return '<label class="field"><span>' + esc(f.label) + '</span><input type="text" data-key="' + esc(f.key) + '" value="' + esc(state[f.key]) + '"></label>';
+      case 'num':
+        return '<label class="field"><span>' + esc(f.label) + '</span><input type="number" inputmode="decimal" data-key="' + esc(f.key) + '" value="' + esc(state[f.key]) + '"></label>';
+      case 'num2':
+        return '<div class="field"><span>' + esc(f.label) + '</span><div class="row">' + f.keys.map(function (k, i) {
+          return '<input type="number" inputmode="decimal" placeholder="' + esc(f.ph[i]) + '" data-key="' + esc(k) + '" value="' + esc(state[k]) + '">';
+        }).join('<span class="sep">/</span>') + '</div></div>';
+      case 'heading': return '<h3>' + esc(f.label) + '</h3>';
+      case 'note': return '<div class="note ' + f.level + '">' + f.html + '</div>';
+      case 'orth': return renderOrth(r);
+      case 'drugs': return renderDrugs();
+      case 'hintsBox': return renderHintsBox(r);
+      case 'abcd2Box': return '<div data-live="abcd2">' + renderAbcd2Box(r) + '</div>';
+      case 'therapy': return renderTherapy(r);
+      case 'summary': return renderSummary(r);
+      default: return '';
+    }
+  }
+
+  function renderOrth(r) {
+    var o = r.orthostasis;
+    var inp = function (k, ph) { return '<input type="number" inputmode="numeric" placeholder="' + ph + '" data-key="' + k + '" value="' + esc(state[k]) + '">'; };
+    var html = '<div class="orth"><table><thead><tr><th></th><th>Szisztolés</th><th>Diasztolés</th><th>Pulzus</th></tr></thead><tbody>' +
+      '<tr><th>Fekve</th><td>' + inp('orth.supSys', 'Hgmm') + '</td><td>' + inp('orth.supDia', 'Hgmm') + '</td><td>' + inp('orth.supHr', '/perc') + '</td></tr>' +
+      '<tr><th>Állva (≤3 perc)</th><td>' + inp('orth.stSys', 'Hgmm') + '</td><td>' + inp('orth.stDia', 'Hgmm') + '</td><td>' + inp('orth.stHr', '/perc') + '</td></tr>' +
+      '</tbody></table>';
+    return html + '<div data-live="orth">' + orthResult(r) + '</div></div>';
+  }
+
+  function orthResult(r) {
+    var o = r.orthostasis, html = '';
+    if (o.done && !o.manual) {
+      html += '<div class="note ' + (o.positive ? 'warn' : (o.pots ? 'warn' : 'ok')) + '">' +
+        'Szisztolés esés: ' + o.dSys + ' Hgmm, diasztolés esés: ' + o.dDia + ' Hgmm' + (o.dHr !== null ? ', pulzusemelkedés: ' + o.dHr + '/perc' : '') + ' → ' +
+        (o.positive ? '<b>orthostaticus hypotonia</b>' : (o.pots ? '<b>POTS-ra utaló pulzusemelkedés</b> (hypotonia nélkül)' : 'nem kóros')) +
+        '<br><small>Kritérium: szisztolés ≥20 vagy diasztolés ≥10 Hgmm esés; POTS: ≥30/perc emelkedés (Freeman et al. 2011 – nem az SOP része).</small></div>';
+    } else {
+      html += radios('orth.manual', [{ v: 'pos', l: 'Pozitív' }, { v: 'neg', l: 'Negatív' }], 'Vagy az eredmény közvetlenül:');
+    }
+    return html;
+  }
+
+  function renderDrugs() {
+    return '<details class="drugs" open><summary>Szédülést okozó gyógyszerek (1. melléklet) – jelölje, ami szóba jön</summary><div class="grid">' +
+      C.DRUGS.map(function (d, i) {
+        var k = 'drug.' + i;
+        return '<label class="check"><input type="checkbox" data-key="' + k + '"' + (state[k] ? ' checked' : '') + '> ' + esc(d) + '</label>';
+      }).join('') + '</div></details>' +
+      '<div class="note warn">Kerülje a diagnózis elhamarkodását: gyógyszermellékhatás csak akkor véleményezhető, ha a panaszok kezdete egyértelműen összefügg az új gyógyszerrel, és az algoritmus további lépésein végighaladva más kórképeket nagy valószínűséggel kizártunk.</div>';
+  }
+
+  function renderHintsBox(r) {
+    var h = r.hints || L.hints(state);
+    if (!h.result) return '';
+    var cls = { central: 'danger', peripheral: 'ok', indeterminate: 'warn' }[h.result];
+    var title = { central: 'Centrális ok valószínű', peripheral: 'Perifériás ok valószínű', indeterminate: 'Nem egyértelmű / hiányos' }[h.result];
+    var hm = h.harmony.result === 'harmonic' ? 'harmonikus' : h.harmony.result === 'dysharmonic' ? 'diszharmonikus' : 'nem megítélhető';
+    return '<div class="note ' + cls + ' hints-box"><b>HINTS+ értékelés: ' + title + '</b>' +
+      (h.central.length ? '<div>Centrális jelek: ' + h.central.map(esc).join('; ') + '</div>' : '') +
+      (h.peripheral.length ? '<div>Perifériás jelek: ' + h.peripheral.map(esc).join('; ') + '</div>' : '') +
+      '<div>Spontán tünetcsoport: ' + hm + '</div>' +
+      (h.missing.length && h.result !== 'central' ? '<div>Hiányzik: ' + h.missing.map(esc).join('; ') + '</div>' : '') +
+      '<small>Bármely centrális jel → centrális; perifériás csak teljes perifériás mintázatnál (SOP 6.4 táblázat).</small></div>';
+  }
+
+  function renderAbcd2Box(r) {
+    var a = r.abcd2;
+    if (!a.complete) return '<div class="note info">ABCD2: ' + a.score + ' pont eddig (hiányos adatok).</div>';
+    return '<div class="note ' + (a.band === 'alacsony' ? 'info' : 'warn') + '"><b>ABCD2 = ' + a.score + '</b> – ' + a.band + ' kockázat (2 napos stroke-kockázat ≈ ' + a.risk2d + ')' +
+      (a.parts.length ? '<br><small>' + a.parts.join(', ') + '</small>' : '') +
+      '<br><small>Johnston et al., Lancet 2007. Izolált szédülésre nem validált – csak segítség, a klinikai megítélés dönt (SOP 5.4).</small></div>';
+  }
+
+  function renderTherapy(r) {
+    var html = '<p>Az SBO-n a terápia a tünetek enyhítését célozza; a hatékonyság egyénenként nagyon változó (SOP 8). Hazabocsátott betegnek áthidaló terápiaként:</p>';
+    html += C.THERAPY.map(function (g) {
+      return '<h3>' + esc(g.group) + '</h3><ul>' + g.items.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>';
+    }).join('');
+    html += '<h3>Oktatóvideók (betegnek is)</h3><ul>' + C.VIDEOS.map(function (v) {
+      return '<li><a href="' + v.url + '" target="_blank" rel="noopener">' + esc(v.label) + '</a></li>';
+    }).join('') + '</ul>';
+    html += '<div class="note info">Fontos a beteg adekvát tájékoztatása a további kivizsgálásról és az otthoni manőverekről; benignus etiológiánál nyugtassuk meg, hogy a panaszok idővel elmúlnak (SOP 8).</div>';
+    if (r.positional && r.positional.result === 'bppv') {
+      html += '<button type="button" class="btn" data-goto-ref="leaflet">BPPV betegtájékoztató megnyitása / nyomtatása</button>';
+    }
+    return html;
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Összegzés                                                         */
+  /* ---------------------------------------------------------------- */
+  var CAT = {
+    UNSTABLE: 'Instabil beteg – ABCDE', STROKE: 'Fokális neurológiai tünet – stroke protokoll', SECONDARY: 'Szekunder (nem neurológiai) szédülés',
+    AVS: 'Akut vestibularis szindróma (AVS)', SEVS: 'Spontán epizodikus vestibularis szindróma (s-EVS)', TEVS: 'Triggerelt epizodikus vestibularis szindróma (t-EVS)',
+  };
+
+  function reportText(r) {
+    var lines = [];
+    var now = new Date();
+    lines.push('SZÉDÜLÉS – SBO VIZSGÁLAT ÖSSZEFOGLALÓ (' + now.toLocaleString('hu-HU') + ')');
+    lines.push('Az ÉPC-HK SBO „Szédüléssel jelentkező beteg ellátása” SOP (v1.0) alapján, döntéstámogató alkalmazással.');
+    lines.push('');
+    var rf = [['rf.nausea', 'hányinger'], ['rf.vomiting', 'hányás'], ['rf.headache', 'fejfájás'], ['rf.diplopia', 'kettőslátás'], ['rf.palpitation', 'palpitáció'],
+      ['rf.chestPain', 'mellkasi fájdalom'], ['rf.dyspnea', 'dyspnoe'], ['rf.syncope', 'syncope']].filter(function (x) { return state[x[0]]; }).map(function (x) { return x[1]; });
+    lines.push('ANAMNÉZIS:');
+    if (state['hx.onset']) lines.push('- Kezdet: ' + state['hx.onset']);
+    if (state['hx.provoke']) lines.push('- Provokáló/enyhítő tényezők: ' + state['hx.provoke']);
+    if (state['hx.trauma']) lines.push('- Koponyatrauma: ' + (state['hx.trauma'] === 'yes' ? 'igen' : 'nem'));
+    if (state['hx.hearing']) lines.push('- Halláscsökkenés: ' + (state['hx.hearing'] === 'yes' ? 'igen' : 'nem') + (state['hx.tinnitus'] ? '; fülzúgás: ' + (state['hx.tinnitus'] === 'yes' ? 'igen' : 'nem') : ''));
+    lines.push('- Kísérő tünetek: ' + (rf.length ? rf.join(', ') : 'nem jelölt'));
+    var pmh = [['pmh.stroke', 'stroke'], ['pmh.arrhythmia', 'ritmuszavar'], ['pmh.mi', 'AMI'], ['pmh.syncope', 'kivizsgálatlan syncope']].filter(function (x) { return state[x[0]]; }).map(function (x) { return x[1]; });
+    if (pmh.length) lines.push('- Előzmények: ' + pmh.join(', '));
+    if (state['pmh.vertigo']) lines.push('- Ismert szédüléses kórkép: ' + state['pmh.vertigo']);
+    var drugs = C.DRUGS.filter(function (d, i) { return state['drug.' + i]; });
+    if (drugs.length) lines.push('- Szóba jövő gyógyszerek: ' + drugs.join(', '));
+    lines.push('');
+
+    var prim = [['prim.vitals', 'paraméterek'], ['prim.physical', 'fizikális+neurológiai vizsgálat'], ['prim.vbg', 'vénás vérgáz'], ['prim.ekg', 'EKG'],
+      ['lab.glucose', 'vércukor'], ['lab.renal', 'vesefunkció'], ['lab.nak', 'Na/K'], ['lab.crp', 'CRP'], ['lab.cbc', 'vérkép']].filter(function (x) { return state[x[0]]; }).map(function (x) { return x[1]; });
+    lines.push('ELVÉGZETT VIZSGÁLATOK: ' + (prim.length ? prim.join(', ') : 'nem jelölt'));
+    var o = r.orthostasis;
+    if (o.done) lines.push('- Orthostasis teszt: ' + (o.manual ? (o.positive ? 'pozitív' : 'negatív') :
+      'szisztolés esés ' + o.dSys + ', diasztolés esés ' + o.dDia + ' Hgmm' + (o.dHr !== null ? ', pulzus +' + o.dHr + '/perc' : '') + ' → ' + (o.positive ? 'orthostaticus hypotonia' : o.pots ? 'POTS-ra utaló' : 'negatív')));
+    if (r.hints && r.hints.result) {
+      lines.push('- HINTS+: ' + { central: 'CENTRÁLIS mintázat', peripheral: 'perifériás mintázat', indeterminate: 'nem egyértelmű' }[r.hints.result]);
+      r.hints.central.concat(r.hints.peripheral).forEach(function (x) { lines.push('    • ' + x); });
+      if (state['hints.hit'] === 'saccade' && state['hints.hitSide']) lines.push('    • Korrekciós szakkád ' + (state['hints.hitSide'] === 'left' ? 'balra' : 'jobbra') + ' fordításkor');
+      if (state['hints.nystDir']) lines.push('    • Nystagmus gyors komponense: ' + (state['hints.nystDir'] === 'left' ? 'balra' : 'jobbra'));
+      if (state['hints.nystGrade']) lines.push('    • Nystagmus intenzitás: ' + state['hints.nystGrade'] + '. fok');
+      var hm = r.hints.harmony.result;
+      if (hm) lines.push('    • Spontán vestibularis tünetcsoport: ' + (hm === 'harmonic' ? 'harmonikus' : 'diszharmonikus'));
+    }
+    if (r.positional.done) {
+      var dhTxt = { neg: 'negatív', typical: 'tipikus pozitív', atypical: 'atípusos', nd: 'nem végezhető' };
+      var rollTxt = { neg: 'negatív', geo_right: 'geotrop, jobbra erősebb', geo_left: 'geotrop, balra erősebb', atypical: 'atípusos', nd: 'nem végezhető' };
+      if (state['dh.right']) lines.push('- Dix-Hallpike jobb: ' + dhTxt[state['dh.right']]);
+      if (state['dh.left']) lines.push('- Dix-Hallpike bal: ' + dhTxt[state['dh.left']]);
+      if (state['roll']) lines.push('- Supine roll: ' + rollTxt[state['roll']]);
+    }
+    if (r.abcd2.complete) lines.push('- ABCD2: ' + r.abcd2.score + ' (' + r.abcd2.band + ' kockázat)');
+    lines.push('');
+    lines.push('DÖNTÉSI ÚT:');
+    r.path.forEach(function (p) { lines.push('- ' + p); });
+    lines.push('');
+    lines.push('CSOPORTDIAGNÓZIS: ' + (r.category ? CAT[r.category] : 'még nem meghatározott'));
+    if (r.workingDx.length) {
+      lines.push('MUNKADIAGNÓZIS:');
+      r.workingDx.forEach(function (d) { lines.push('- ' + d.text); });
+    }
+    if (r.actions.length) {
+      lines.push('TEENDŐK:');
+      r.actions.forEach(function (a) { lines.push('- ' + a.text + ' [' + a.ref + ']'); });
+    }
+    if (r.disposition.length) {
+      lines.push('DISZPOZÍCIÓ:');
+      r.disposition.forEach(function (a) { lines.push('- ' + a.text + ' [' + a.ref + ']'); });
+    }
+    if (state['note']) { lines.push(''); lines.push('MEGJEGYZÉS: ' + state['note']); }
+    return lines.join('\n');
+  }
+
+  function renderSummary(r) {
+    return '<label class="field"><span>Saját megjegyzés (bekerül a szövegbe)</span><textarea data-key="note" rows="3">' + esc(state.note) + '</textarea></label>' +
+      '<div class="row gap"><button type="button" class="btn primary" id="copyReport">Szöveg másolása</button>' +
+      '<button type="button" class="btn" onclick="window.print()">Nyomtatás</button></div>' +
+      '<pre id="report" class="report">' + esc(reportText(r)) + '</pre>';
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Döntéstámogató panel                                              */
+  /* ---------------------------------------------------------------- */
+  function renderPanel(r) {
+    var html = '<div class="cat ' + (r.category || 'none') + '">' + (r.category ? esc(CAT[r.category]) : 'Besorolás folyamatban…') + '</div>';
+    if (r.path.length) html += '<h4>Döntési út</h4><ol class="path">' + r.path.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ol>';
+    if (r.alerts.length) html += r.alerts.map(function (a) { return '<div class="note ' + a.level + '">' + esc(a.text) + ' <span class="ref">' + esc(a.ref) + '</span></div>'; }).join('');
+    var list = function (title, arr) {
+      return arr.length ? '<h4>' + title + '</h4><ul>' + arr.map(function (a) { return '<li>' + esc(a.text) + ' <span class="ref">' + esc(a.ref) + '</span></li>'; }).join('') + '</ul>' : '';
+    };
+    html += list('Munkadiagnózis', r.workingDx);
+    html += list('Teendők', r.actions);
+    html += list('Diszpozíció', r.disposition);
+    if (r.differentials.length) {
+      html += '<details><summary>Differenciáldiagnózis (SOP 5.2 táblázat)</summary>' + r.differentials.map(function (d) {
+        return '<div><b>' + esc(d.group) + ':</b> ' + d.items.map(esc).join(', ') + '</div>';
+      }).join('') + '</details>';
+    }
+    var next = STAGE_TO_STEP[r.stage];
+    if (next && next !== current) {
+      var st = STEPS.filter(function (x) { return x.id === next; })[0];
+      html += '<button type="button" class="btn primary block" data-goto="' + next + '">Következő teendő: ' + esc(st.title) + ' →</button>';
+    }
+    return html;
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Fő renderelés                                                     */
+  /* ---------------------------------------------------------------- */
+  function render() {
+    var r = L.evaluate(state);
+    var steps = visibleSteps(r);
+    if (!steps.some(function (s) { return s.id === current; })) current = steps[0].id;
+
+    document.getElementById('viewExam').classList.toggle('active', view === 'exam');
+    document.getElementById('viewRef').classList.toggle('active', view === 'reference');
+    document.getElementById('exam').hidden = view !== 'exam';
+    document.getElementById('reference').hidden = view !== 'reference';
+
+    if (view === 'reference') { renderReference(); return; }
+
+    var nextStage = STAGE_TO_STEP[r.stage];
+    document.getElementById('steps').innerHTML = steps.map(function (st, i) {
+      var cls = st.id === current ? 'current' : '';
+      if (st.id === nextStage && st.id !== current) cls += ' todo';
+      return '<li><button type="button" class="' + cls + '" data-goto="' + st.id + '"><span class="n">' + (i + 1) + '</span>' + esc(st.title) + '</button></li>';
+    }).join('');
+
+    var step = STEPS.filter(function (s) { return s.id === current; })[0];
+    var idx = steps.indexOf(step);
+    var html = '<h2>' + esc(step.title) + (step.ref ? ' <span class="ref">' + esc(step.ref) + '</span>' : '') + '</h2>';
+    html += step.fields.map(function (f) { return renderField(f, r); }).join('');
+    html += '<div class="nav">' +
+      (idx > 0 ? '<button type="button" class="btn" data-goto="' + steps[idx - 1].id + '">← Vissza</button>' : '<span></span>') +
+      (idx < steps.length - 1 ? '<button type="button" class="btn primary" data-goto="' + steps[idx + 1].id + '">Tovább →</button>' : '') +
+      '</div>';
+    document.getElementById('form').innerHTML = html;
+    document.getElementById('panel').innerHTML = renderPanel(r);
+    var cur = document.querySelector('#steps .current');
+    if (cur && cur.scrollIntoView && window.innerWidth <= 1100) cur.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }
+
+  function renderReference() {
+    var therapyHtml = C.THERAPY.map(function (g) {
+      return '<h4>' + esc(g.group) + '</h4><ul>' + g.items.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>';
+    }).join('') + '<h4>Oktatóvideók</h4><ul>' + C.VIDEOS.map(function (v) {
+      return '<li><a href="' + v.url + '" target="_blank" rel="noopener">' + esc(v.label) + '</a></li>';
+    }).join('') + '</ul>';
+    var drugs = '<h4>Szédülést okozó gyógyszerek (1. melléklet)</h4><ul class="cols">' + C.DRUGS.map(function (d) { return '<li>' + esc(d) + '</li>'; }).join('') + '</ul>';
+    document.getElementById('reference').innerHTML = C.REFERENCE.map(function (sec) {
+      var body = sec.id === 'therapy' ? therapyHtml + drugs : sec.html;
+      return '<details class="refsec" id="ref-' + sec.id + '"' + (refOpen === sec.id ? ' open' : '') + '><summary>' + esc(sec.title) + '</summary><div>' + body + '</div></details>';
+    }).join('');
+    if (refOpen) {
+      var el = document.getElementById('ref-' + refOpen);
+      if (el) el.scrollIntoView();
+      refOpen = null;
+    }
+  }
+  var refOpen = null;
+
+  /* ---------------------------------------------------------------- */
+  /* Események                                                         */
+  /* ---------------------------------------------------------------- */
+  function updatePanelOnly() {
+    var r = L.evaluate(state);
+    document.getElementById('panel').innerHTML = renderPanel(r);
+    var rep = document.getElementById('report');
+    if (rep) rep.textContent = reportText(r);
+    var lo = document.querySelector('[data-live="orth"]');
+    if (lo) lo.innerHTML = orthResult(r);
+    var la = document.querySelector('[data-live="abcd2"]');
+    if (la) la.innerHTML = renderAbcd2Box(r);
+  }
+
+  document.addEventListener('change', function (e) {
+    var t = e.target, key = t.getAttribute && t.getAttribute('data-key');
+    if (!key) return;
+    if (t.type === 'checkbox') state[key] = t.checked;
+    else if (t.type === 'radio') state[key] = t.value;
+    else state[key] = t.value;
+    if (t.type === 'radio' || t.type === 'checkbox') render();
+    else updatePanelOnly();
+  });
+
+  document.addEventListener('input', function (e) {
+    var t = e.target, key = t.getAttribute && t.getAttribute('data-key');
+    if (!key || (t.type !== 'text' && t.tagName !== 'TEXTAREA' && t.type !== 'number')) return;
+    state[key] = t.value;
+    updatePanelOnly();
+  });
+
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest ? e.target.closest('[data-goto],[data-clear],[data-goto-ref],#copyReport,#viewExam,#viewRef,#reset') : null;
+    if (!t) return;
+    if (t.hasAttribute('data-goto')) { current = t.getAttribute('data-goto'); view = 'exam'; render(); window.scrollTo(0, 0); return; }
+    if (t.hasAttribute('data-clear')) { delete state[t.getAttribute('data-clear')]; render(); return; }
+    if (t.hasAttribute('data-goto-ref')) { refOpen = t.getAttribute('data-goto-ref'); view = 'reference'; render(); return; }
+    if (t.id === 'viewExam') { view = 'exam'; render(); return; }
+    if (t.id === 'viewRef') { view = 'reference'; render(); return; }
+    if (t.id === 'reset') {
+      if (confirm('Új beteg: minden megadott adat törlődik. Folytatja?')) { state = {}; current = 'stability'; view = 'exam'; render(); }
+      return;
+    }
+    if (t.id === 'copyReport') {
+      var txt = document.getElementById('report').textContent;
+      var done = function () { t.textContent = 'Másolva ✓'; setTimeout(function () { t.textContent = 'Szöveg másolása'; }, 1500); };
+      if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(txt).then(done);
+      else {
+        var ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); done(); } catch (err) { /* nincs vágólap-hozzáférés */ }
+        document.body.removeChild(ta);
+      }
+    }
+  });
+
+  // SOP érvényességi figyelmeztetés
+  var valid = new Date(C.SOP.validUntil + 'T23:59:59');
+  if (new Date() > valid) {
+    var b = document.getElementById('validity');
+    b.hidden = false;
+    b.textContent = 'Figyelem: a forrás SOP (' + C.SOP.version + ') érvényessége ' + C.SOP.validUntil.replace(/-/g, '.') + '. lejárt – ellenőrizze, van-e frissebb változat.';
+  }
+
+  render();
+})();
+
+</script>
+</body>
+</html>

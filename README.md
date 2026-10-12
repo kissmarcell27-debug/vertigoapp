@@ -57,3 +57,8 @@ az alkalmazás ezt a felületen is jelzi.
 
 - Az SOP az ÉPC-HK SBO belső eljárásrendje; a szerzői jogi megjegyzése szerint a felhasználáshoz a szerzők engedélye szükséges.
 - Diagnosztikai döntést támogató szoftverként éles klinikai használat előtt az orvostechnikai eszközökre vonatkozó szabályozást (EU MDR, 11. szabály) is vizsgálni kell.
+
+## Egyfájlos változat
+
+A `szedules-sbo.html` a teljes app egyetlen fájlban (CSS és JS beágyazva): letölthető, és dupla kattintással offline is megnyitható.
+A forrásfájlok módosítása után újragenerálandó: `npm run build`.
