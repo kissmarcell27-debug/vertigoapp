@@ -36,6 +36,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
@@ -141,7 +142,7 @@ a { color: var(--accent); }
 .panel details { margin-top: 12px; font-size: 14px; }
 .panel summary { cursor: pointer; font-weight: 600; }
 .cat { font-weight: 700; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); }
-.cat.UNSTABLE, .cat.STROKE { background: var(--danger-soft); color: var(--danger); }
+.cat.danger { background: var(--danger-soft); color: var(--danger); }
 .cat.none { color: var(--muted); font-weight: 500; }
 
 .report {
@@ -236,3 +237,25 @@ textarea.report.epi { width: 100%; resize: vertical; color: var(--text); font: 1
 .epi-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .epi-head .btn { margin-left: auto; }
 .btn.small { padding: 4px 10px; font-size: 13px; }
+
+/* Kezdőlap – eljárásrendek */
+.home { max-width: 980px; margin: 0 auto; padding: 4px 16px 40px; }
+.home h2 { margin: 8px 0 4px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin: 14px 0; }
+.pcard {
+  display: flex; gap: 12px; align-items: flex-start; text-align: left; cursor: pointer; font: inherit; color: var(--text);
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px;
+}
+.pcard:hover { border-color: var(--accent); }
+.pnum {
+  flex: none; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 18px;
+}
+.pbody { display: flex; flex-direction: column; gap: 4px; }
+.pbody span { color: var(--muted); font-size: 14px; }
+.pbody small { color: var(--muted); }
+.expired { color: var(--warn); font-weight: 600; }
+.valid { color: var(--ok); }
+code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }

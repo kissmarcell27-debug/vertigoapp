@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const L = require('../js/logic.js');
+const L = require('../../protocols/szedules/logic.js');
 
 const stable = { unstable: 'no', focal: 'no', nonneuro: 'no' };
 const avsBase = { ...stable, continuous: 'yes', 'avs.trauma': 'no', 'avs.headache': 'no', 'avs.drug': 'no' };

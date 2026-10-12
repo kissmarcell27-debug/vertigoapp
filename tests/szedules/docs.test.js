@@ -1,8 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const L = require('../js/logic.js');
-const C = require('../js/content.js');
-const E = require('../js/epicrisis.js');
+const L = require('../../protocols/szedules/logic.js');
+const C = require('../../protocols/szedules/content.js');
+const E = require('../../protocols/szedules/docs.js');
 
 const secs = (s) => Object.fromEntries(E.sections(s, L.evaluate(s), C).map((x) => [x.id, x.text]));
 const stable = { unstable: 'no', focal: 'no', nonneuro: 'no' };

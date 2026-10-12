@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Szédülés SBO</title>
-  <meta name="description" content="Döntéstámogató a szédüléssel jelentkező beteg sürgősségi vizsgálatához, az ÉPC-HK SBO SOP alapján.">
+  <title>SBO döntéstámogató</title>
+  <meta name="description" content="Döntéstámogató a sürgősségi osztály eljárásrendjei (SOP) alapján.">
   <style>
 :root {
   --bg: #f4f5f8;
@@ -44,6 +44,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
@@ -149,7 +150,7 @@ a { color: var(--accent); }
 .panel details { margin-top: 12px; font-size: 14px; }
 .panel summary { cursor: pointer; font-weight: 600; }
 .cat { font-weight: 700; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); }
-.cat.UNSTABLE, .cat.STROKE { background: var(--danger-soft); color: var(--danger); }
+.cat.danger { background: var(--danger-soft); color: var(--danger); }
 .cat.none { color: var(--muted); font-weight: 500; }
 
 .report {
@@ -245,16 +246,39 @@ textarea.report.epi { width: 100%; resize: vertical; color: var(--text); font: 1
 .epi-head .btn { margin-left: auto; }
 .btn.small { padding: 4px 10px; font-size: 13px; }
 
+/* Kezdőlap – eljárásrendek */
+.home { max-width: 980px; margin: 0 auto; padding: 4px 16px 40px; }
+.home h2 { margin: 8px 0 4px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin: 14px 0; }
+.pcard {
+  display: flex; gap: 12px; align-items: flex-start; text-align: left; cursor: pointer; font: inherit; color: var(--text);
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px;
+}
+.pcard:hover { border-color: var(--accent); }
+.pnum {
+  flex: none; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 18px;
+}
+.pbody { display: flex; flex-direction: column; gap: 4px; }
+.pbody span { color: var(--muted); font-size: 14px; }
+.pbody small { color: var(--muted); }
+.expired { color: var(--warn); font-weight: 600; }
+.valid { color: var(--ok); }
+code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
+
 </style>
 </head>
 <body>
   <header class="top">
     <div class="brand">
-      <h1>Szédüléssel jelentkező beteg</h1>
-      <p>Döntéstámogató az ÉPC-HK SBO SOP (v1.0) alapján</p>
+      <h1 id="ptitle">SBO döntéstámogató</h1>
+      <p id="psub"></p>
     </div>
     <nav class="tabs">
-      <button type="button" id="viewExam" class="active">Vizsgálat</button>
+      <button type="button" id="viewHome">Eljárásrendek</button>
+      <button type="button" id="viewExam">Vizsgálat</button>
       <button type="button" id="viewRef">Referencia</button>
       <button type="button" id="reset" class="danger">Új beteg</button>
     </nav>
@@ -264,7 +288,8 @@ textarea.report.epi { width: 100%; resize: vertical; color: var(--text); font: 1
     Döntéstámogató eszköz – nem helyettesíti a klinikai ítéletet és a szakmai felelősséget. Adatot nem tárol és nem küld: minden a böngészőben marad, és oldalfrissítéskor törlődik.
   </div>
 
-  <main id="exam" class="layout">
+  <main id="home" class="home" hidden></main>
+  <main id="exam" class="layout" hidden>
     <aside class="steps-wrap"><ol id="steps" class="steps"></ol></aside>
     <section id="form" class="card form"></section>
     <aside id="panel" class="card panel" aria-live="polite"></aside>
@@ -272,6 +297,64 @@ textarea.report.epi { width: 100%; resize: vertical; color: var(--text); font: 1
   <a href="#panel" class="jump">Döntéstámogatás ↓</a>
   <main id="reference" class="reference" hidden></main>
 
+  <!-- Közös motor -->
+  <script>
+/*
+ * SBO döntéstámogató – eljárásrend-regiszter és közös segédfüggvények.
+ *
+ * Minden eljárásrend (SOP) egy modul, amely a SBO.register({...}) hívással jelentkezik be.
+ * A modul szerződését (milyen mezőket kell megadni) a docs/UJ_ELJARASREND.md írja le.
+ */
+(function (root) {
+  'use strict';
+
+  var protocols = [];
+
+  function register(p) {
+    var required = ['id', 'title', 'sop', 'steps', 'evaluate', 'categories', 'stageToStep'];
+    required.forEach(function (k) {
+      if (!p[k]) throw new Error('Eljárásrend „' + (p.id || '?') + '”: hiányzó mező: ' + k);
+    });
+    if (protocols.some(function (x) { return x.id === p.id; })) throw new Error('Duplikált eljárásrend-azonosító: ' + p.id);
+    protocols.push(p);
+  }
+
+  /* ---------- Szöveg-segédek a dokumentáció-generáláshoz ---------- */
+  var BLANK = '___';
+  var text = {
+    BLANK: BLANK,
+    // kitöltött-e egy mező (üres string / undefined → null)
+    val: function (s, k) { return s[k] !== undefined && s[k] !== null && String(s[k]).trim() !== '' ? String(s[k]).trim() : null; },
+    // hiányzó adat helyén kitöltendő hely
+    or: function (v) { return v === null || v === undefined ? BLANK : v; },
+    cap: function (t) { return t ? t.charAt(0).toUpperCase() + t.slice(1) : t; },
+    // „a, b és c”
+    joinHu: function (arr) { return arr.length <= 1 ? arr.join('') : arr.slice(0, -1).join(', ') + ' és ' + arr[arr.length - 1]; },
+    // Az osztályos sablon szerinti paramétersor
+    vitalsLine: function (s) {
+      var v = function (k) { return text.or(text.val(s, k)); };
+      return 'BP: ' + v('vit.sys') + '/' + v('vit.dia') + ' Hgmm, P: ' + v('vit.hr') + '/min, SpO₂: ' + v('vit.spo2') + '%, T: ' + v('vit.temp') + '°C';
+    },
+  };
+
+  /* ---------- Gyakran használt mezőcsoportok ---------- */
+  var fields = {
+    vitals: function () {
+      return [
+        { type: 'num2', keys: ['vit.sys', 'vit.dia'], label: 'Vérnyomás (Hgmm)', ph: ['szisztolés', 'diasztolés'] },
+        { type: 'num2', keys: ['vit.hr', 'vit.spo2'], label: 'Pulzus (/perc) és SpO₂ (%)', ph: ['pulzus', 'SpO₂'] },
+        { type: 'num', key: 'vit.temp', label: 'Testhőmérséklet (°C)' },
+      ];
+    },
+  };
+
+  var api = { register: register, protocols: protocols, text: text, fields: fields };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.SBO = api;
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+  <!-- Eljárásrendek (mindegyik a saját mappájában; a protocol.js jelentkezik be a SBO.register-rel) -->
   <script>
 /*
  * Döntési logika – "Szédüléssel jelentkező beteg ellátása" SOP (ÉPC-HK SBO, v1.0, 2023.09.01.)
@@ -1455,24 +1538,17 @@ textarea.report.epi { width: 100%; resize: vertical; color: var(--text); font: 1
 
 </script>
   <script>
-/* Felhasználói felület – a döntési logika a logic.js-ben van. */
+/*
+ * Eljárásrend-modul: „Szédüléssel jelentkező beteg ellátása” (ÉPC-HK SBO SOP 14, v1.0).
+ * Függ: SBO (js/core/registry.js), VertigoLogic, VertigoContent, VertigoIllustrations, VertigoEpicrisis.
+ */
 (function () {
   'use strict';
 
   var L = window.VertigoLogic;
   var C = window.VertigoContent;
 
-  var state = {};
-  var current = 'stability';
-  var view = 'exam'; // exam | reference
-
-  var YN = [{ v: 'yes', l: 'Igen' }, { v: 'no', l: 'Nem' }];
   var LR = [{ v: 'left', l: 'Balra' }, { v: 'right', l: 'Jobbra' }];
-
-  function esc(t) {
-    return String(t === undefined || t === null ? '' : t)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
 
   /* ---------------------------------------------------------------- */
   /* Lépések                                                           */
@@ -1485,9 +1561,7 @@ textarea.report.epi { width: 100%; resize: vertical; color: var(--text); font: 1
         { type: 'note', when: function (s) { return s.unstable === 'yes'; }, level: 'danger', html: 'Ellátás ABCDE séma szerint – az SOP ezt nem részletezi.' },
         { type: 'heading', label: 'Primer vizsgálat (minden stabil betegnél)' },
         { type: 'check', key: 'prim.vitals', label: 'Paraméterek: vérnyomás, pulzus, szaturáció' },
-        { type: 'num2', keys: ['vit.sys', 'vit.dia'], label: 'Vérnyomás (Hgmm)', ph: ['szisztolés', 'diasztolés'] },
-        { type: 'num2', keys: ['vit.hr', 'vit.spo2'], label: 'Pulzus (/perc) és SpO₂ (%)', ph: ['pulzus', 'SpO₂'] },
-        { type: 'num', key: 'vit.temp', label: 'Testhőmérséklet (°C)' },
+      ].concat(SBO.fields.vitals(), [
         { type: 'check', key: 'prim.physical', label: 'Fizikális és neurológiai vizsgálat' },
         { type: 'check', key: 'prim.history', label: 'Releváns anamnézis' },
         { type: 'check', key: 'prim.vbg', label: 'Vénás vérgáz' },
@@ -1501,8 +1575,8 @@ textarea.report.epi { width: 100%; resize: vertical; color: var(--text); font: 1
         { type: 'check', key: 'lab.cbc', label: 'Nagy vérkép' },
         { type: 'text', key: 'lab.text', label: 'Vérgáz / labor eredmény röviden (epikrízisbe)' },
         { type: 'heading', label: '± Orthostasis teszt' },
-        { type: 'orth' },
-      ],
+        { type: 'widget', name: 'orth' },
+      ]),
     },
     {
       id: 'history', title: 'Anamnézis', ref: 'SOP 5.1',
@@ -1567,7 +1641,7 @@ textarea.report.epi { width: 100%; resize: vertical; color: var(--text); font: 1
         { type: 'choice', key: 'avs.ct', label: 'Natív koponya CT eredménye', when: function (s) { return s['avs.trauma'] === 'yes' || s['avs.headache'] === 'yes'; },
           options: [{ v: 'neg', l: 'Nincs ICH / SAV' }, { v: 'ich', l: 'ICH / SAV igazolódott' }] },
         { type: 'yn', key: 'avs.drug', label: 'Újonnan bevezetett gyógyszer / gyógyszerhatás felmerül?' },
-        { type: 'drugs', when: function (s) { return s['avs.drug'] === 'yes'; } },
+        { type: 'widget', name: 'drugs', when: function (s) { return s['avs.drug'] === 'yes'; } },
         { type: 'yn', key: 'avs.drugClear', label: 'A panaszok kezdete egyértelműen összefügg az új gyógyszerrel?', when: function (s) { return s['avs.drug'] === 'yes'; } },
       ],
     },
@@ -1609,7 +1683,7 @@ textarea.report.epi { width: 100%; resize: vertical; color: var(--text); font: 1
           { v: 'ataxia', l: 'Kifejezett ataxia' }, { v: 'unable', l: 'Nem járóképes' }] },
         { type: 'illus', name: 'gait' },
         { type: 'yn', key: 'stat.truncal', label: 'Törzsataxia?' },
-        { type: 'hintsBox' },
+        { type: 'widget', name: 'hintsBox' },
         { type: 'heading', label: 'Súlyosság', when: function (s, r) { return r.hints && r.hints.result === 'peripheral'; } },
         { type: 'yn', key: 'avs.severe', label: 'Súlyos eset? (folyamatos parenterális hányáscsillapítás igénye, vagy a szédülés miatt teljes önellátási képtelenség)',
           when: function (s, r) { return r.hints && r.hints.result === 'peripheral'; } },
@@ -1627,7 +1701,7 @@ textarea.report.epi { width: 100%; resize: vertical; color: var(--text); font: 1
         { type: 'choice', key: 'abcd2.dur', label: 'Tünetek időtartama', options: [
           { v: '60+', l: '≥60 perc' }, { v: '10-59', l: '10–59 perc' }, { v: '<10', l: '<10 perc' }] },
         { type: 'yn', key: 'abcd2.dm', label: 'Diabetes mellitus?' },
-        { type: 'abcd2Box' },
+        { type: 'widget', name: 'abcd2' },
         { type: 'heading', label: 'Klinikai döntés' },
         { type: 'choice', key: 'sevs.tiaRisk', label: 'Az anamnézis alapján a vertebrobasilaris TIA kockázata', options: [
           { v: 'high', l: 'Magas' }, { v: 'low', l: 'Alacsony' }] },
@@ -1663,13 +1737,13 @@ textarea.report.epi { width: 100%; resize: vertical; color: var(--text); font: 1
         { type: 'choice', key: 'tevs.severity', label: 'Súlyosság', when: function (s, r) { return r.positional.result === 'bppv'; }, options: [
           { v: 'mild', l: 'Enyhe, ambulánsan menedzselhető' }, { v: 'severe', l: 'Súlyos, ambulánsan nem menedzselhető' }] },
         { type: 'heading', label: 'Orthostasis teszt', when: function (s, r) { return r.positional.result === 'negative'; } },
-        { type: 'orth', when: function (s, r) { return r.positional.result === 'negative'; } },
+        { type: 'widget', name: 'orth', when: function (s, r) { return r.positional.result === 'negative'; } },
       ],
     },
     {
       id: 'therapy', title: 'Terápia és tájékoztatás', ref: 'SOP 8',
       fields: [
-        { type: 'therapy' },
+        { type: 'widget', name: 'therapy' },
         { type: 'heading', label: 'Epikrízishez' },
         { type: 'text', key: 'sbo.therapy', label: 'Az SBO-n alkalmazott terápia (pl. „iv. metoclopramid 10 mg és 500 ml krisztalloid infúzió”)' },
         { type: 'choice', key: 'dc.state', label: 'Állapot távozáskor', options: [
@@ -1682,170 +1756,107 @@ textarea.report.epi { width: 100%; resize: vertical; color: var(--text); font: 1
         { type: 'check', key: 'rx.cerucal', label: 'Cerucal 10 mg p.o. 6 óránként' },
       ],
     },
-    {
-      id: 'summary', title: 'Összegzés / dokumentáció', ref: '',
-      fields: [{ type: 'summary' }],
-    },
+    { id: 'summary', title: 'Összegzés / dokumentáció', ref: '', fields: [{ type: 'summary' }] },
   ];
 
-  var STAGE_TO_STEP = {
-    stability: 'stability', focal: 'focal', nonneuro: 'nonneuro', classify: 'classify',
-    avs_pre: 'avs', hints: 'hints', avs_dispo: 'hints', sevs: 'sevs', tevs: 'tevs', done: 'summary',
+  function stepVisible(id, s, r) {
+    switch (id) {
+      case 'focal': return s.unstable === 'no';
+      case 'nonneuro': return s.unstable === 'no' && s.focal === 'no';
+      case 'classify': return s.unstable === 'no' && s.focal === 'no' && r.category !== 'SECONDARY' && !!s.nonneuro &&
+        (r.stage === 'classify' || ['AVS', 'SEVS', 'TEVS'].indexOf(r.category) >= 0);
+      case 'avs': return r.category === 'AVS';
+      case 'hints': return r.category === 'AVS' && r.stage !== 'avs_pre' && !(s['avs.ct'] === 'ich' && (s['avs.trauma'] === 'yes' || s['avs.headache'] === 'yes'));
+      case 'sevs': return r.category === 'SEVS';
+      case 'tevs': return r.category === 'TEVS';
+      case 'therapy': return ['AVS', 'SEVS', 'TEVS'].indexOf(r.category) >= 0;
+      default: return true;
+    }
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Protokollspecifikus widgetek (ctx: state, r, esc, radios)        */
+  /* ---------------------------------------------------------------- */
+  var widgets = {
+    orth: {
+      render: function (ctx) {
+        var inp = function (k, ph) { return '<input type="number" inputmode="numeric" placeholder="' + ph + '" data-key="' + k + '" value="' + ctx.esc(ctx.state[k]) + '">'; };
+        return '<div class="orth"><table><thead><tr><th></th><th>Szisztolés</th><th>Diasztolés</th><th>Pulzus</th></tr></thead><tbody>' +
+          '<tr><th>Fekve</th><td>' + inp('orth.supSys', 'Hgmm') + '</td><td>' + inp('orth.supDia', 'Hgmm') + '</td><td>' + inp('orth.supHr', '/perc') + '</td></tr>' +
+          '<tr><th>Állva (≤3 perc)</th><td>' + inp('orth.stSys', 'Hgmm') + '</td><td>' + inp('orth.stDia', 'Hgmm') + '</td><td>' + inp('orth.stHr', '/perc') + '</td></tr>' +
+          '</tbody></table></div>';
+      },
+      live: function (ctx) {
+        var o = ctx.r.orthostasis;
+        if (o.done && !o.manual) {
+          return '<div class="note ' + (o.positive || o.pots ? 'warn' : 'ok') + '">' +
+            'Szisztolés esés: ' + o.dSys + ' Hgmm, diasztolés esés: ' + o.dDia + ' Hgmm' + (o.dHr !== null ? ', pulzusemelkedés: ' + o.dHr + '/perc' : '') + ' → ' +
+            (o.positive ? '<b>orthostaticus hypotonia</b>' : (o.pots ? '<b>POTS-ra utaló pulzusemelkedés</b> (hypotonia nélkül)' : 'nem kóros')) +
+            '<br><small>Kritérium: szisztolés ≥20 vagy diasztolés ≥10 Hgmm esés; POTS: ≥30/perc emelkedés (Freeman et al. 2011 – nem az SOP része).</small></div>';
+        }
+        return ctx.radios('orth.manual', [{ v: 'pos', l: 'Pozitív' }, { v: 'neg', l: 'Negatív' }], 'Vagy az eredmény közvetlenül:');
+      },
+    },
+    drugs: {
+      render: function (ctx) {
+        return '<details class="drugs" open><summary>Szédülést okozó gyógyszerek (1. melléklet) – jelölje, ami szóba jön</summary><div class="grid">' +
+          C.DRUGS.map(function (d, i) {
+            var k = 'drug.' + i;
+            return '<label class="check"><input type="checkbox" data-key="' + k + '"' + (ctx.state[k] ? ' checked' : '') + '> ' + ctx.esc(d) + '</label>';
+          }).join('') + '</div></details>' +
+          '<div class="note warn">Kerülje a diagnózis elhamarkodását: gyógyszermellékhatás csak akkor véleményezhető, ha a panaszok kezdete egyértelműen összefügg az új gyógyszerrel, és az algoritmus további lépésein végighaladva más kórképeket nagy valószínűséggel kizártunk.</div>';
+      },
+    },
+    hintsBox: {
+      render: function (ctx) {
+        var esc = ctx.esc;
+        var h = ctx.r.hints || L.hints(ctx.state);
+        if (!h.result) return '';
+        var cls = { central: 'danger', peripheral: 'ok', indeterminate: 'warn' }[h.result];
+        var title = { central: 'Centrális ok valószínű', peripheral: 'Perifériás ok valószínű', indeterminate: 'Nem egyértelmű / hiányos' }[h.result];
+        var hm = h.harmony.result === 'harmonic' ? 'harmonikus' : h.harmony.result === 'dysharmonic' ? 'diszharmonikus' : 'nem megítélhető';
+        return '<div class="note ' + cls + ' hints-box"><b>HINTS+ értékelés: ' + title + '</b>' +
+          (h.central.length ? '<div>Centrális jelek: ' + h.central.map(esc).join('; ') + '</div>' : '') +
+          (h.peripheral.length ? '<div>Perifériás jelek: ' + h.peripheral.map(esc).join('; ') + '</div>' : '') +
+          '<div>Spontán tünetcsoport: ' + hm + '</div>' +
+          (h.missing.length && h.result !== 'central' ? '<div>Hiányzik: ' + h.missing.map(esc).join('; ') + '</div>' : '') +
+          '<small>Bármely centrális jel → centrális; perifériás csak teljes perifériás mintázatnál (SOP 6.4 táblázat).</small></div>';
+      },
+    },
+    abcd2: {
+      render: function () { return ''; },
+      live: function (ctx) {
+        var a = ctx.r.abcd2;
+        if (!a.complete) return '<div class="note info">ABCD2: ' + a.score + ' pont eddig (hiányos adatok).</div>';
+        return '<div class="note ' + (a.band === 'alacsony' ? 'info' : 'warn') + '"><b>ABCD2 = ' + a.score + '</b> – ' + a.band + ' kockázat (2 napos stroke-kockázat ≈ ' + a.risk2d + ')' +
+          (a.parts.length ? '<br><small>' + a.parts.join(', ') + '</small>' : '') +
+          '<br><small>Johnston et al., Lancet 2007. Izolált szédülésre nem validált – csak segítség, a klinikai megítélés dönt (SOP 5.4).</small></div>';
+      },
+    },
+    therapy: {
+      render: function (ctx) {
+        var esc = ctx.esc;
+        var html = '<p>Az SBO-n a terápia a tünetek enyhítését célozza; a hatékonyság egyénenként nagyon változó (SOP 8). Hazabocsátott betegnek áthidaló terápiaként:</p>';
+        html += C.THERAPY.map(function (g) {
+          return '<h3>' + esc(g.group) + '</h3><ul>' + g.items.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>';
+        }).join('');
+        html += '<h3>Oktatóvideók (betegnek is)</h3><ul>' + C.VIDEOS.map(function (v) {
+          return '<li><a href="' + v.url + '" target="_blank" rel="noopener">' + esc(v.label) + '</a></li>';
+        }).join('') + '</ul>';
+        html += '<div class="note info">Fontos a beteg adekvát tájékoztatása a további kivizsgálásról és az otthoni manőverekről; benignus etiológiánál nyugtassuk meg, hogy a panaszok idővel elmúlnak (SOP 8).</div>';
+        if (ctx.r.positional && ctx.r.positional.result === 'bppv') {
+          html += '<button type="button" class="btn" data-goto-ref="leaflet">BPPV betegtájékoztató megnyitása / nyomtatása</button>';
+        }
+        return html;
+      },
+    },
   };
 
-  function visibleSteps(r) {
-    var s = state;
-    return STEPS.filter(function (st) {
-      switch (st.id) {
-        case 'focal': return s.unstable === 'no';
-        case 'nonneuro': return s.unstable === 'no' && s.focal === 'no';
-        case 'classify': return s.unstable === 'no' && s.focal === 'no' && r.category !== 'SECONDARY' && !!s.nonneuro &&
-          (r.stage === 'classify' || ['AVS', 'SEVS', 'TEVS'].indexOf(r.category) >= 0);
-        case 'avs': return r.category === 'AVS';
-        case 'hints': return r.category === 'AVS' && r.stage !== 'avs_pre' && !(s['avs.ct'] === 'ich' && (s['avs.trauma'] === 'yes' || s['avs.headache'] === 'yes'));
-        case 'sevs': return r.category === 'SEVS';
-        case 'tevs': return r.category === 'TEVS';
-        case 'therapy': return ['AVS', 'SEVS', 'TEVS'].indexOf(r.category) >= 0;
-        default: return true;
-      }
-    });
-  }
-
   /* ---------------------------------------------------------------- */
-  /* Mező-renderelők                                                   */
+  /* Strukturált összegzés – protokollspecifikus leletsorok            */
   /* ---------------------------------------------------------------- */
-  function radios(key, options, label) {
-    var v = state[key];
-    return '<fieldset class="field"><legend>' + esc(label) + '</legend><div class="seg">' +
-      options.map(function (o) {
-        var id = 'f_' + key.replace(/\W/g, '_') + '_' + o.v.replace(/\W/g, '_');
-        return '<input type="radio" id="' + id + '" name="' + esc(key) + '" value="' + esc(o.v) + '" data-key="' + esc(key) + '"' + (v === o.v ? ' checked' : '') + '>' +
-          '<label for="' + id + '">' + esc(o.l) + '</label>';
-      }).join('') +
-      (v ? '<button type="button" class="clear" data-clear="' + esc(key) + '" title="Válasz törlése">×</button>' : '') +
-      '</div></fieldset>';
-  }
-
-  function renderField(f, r) {
-    if (f.when && !f.when(state, r)) return '';
-    switch (f.type) {
-      case 'yn': return radios(f.key, YN, f.label);
-      case 'choice': return radios(f.key, f.options, f.label);
-      case 'check':
-        return '<label class="check"><input type="checkbox" data-key="' + esc(f.key) + '"' + (state[f.key] ? ' checked' : '') + '> ' + esc(f.label) + '</label>';
-      case 'text':
-        return '<label class="field"><span>' + esc(f.label) + '</span><input type="text" data-key="' + esc(f.key) + '" value="' + esc(state[f.key]) + '"></label>';
-      case 'num':
-        return '<label class="field"><span>' + esc(f.label) + '</span><input type="number" inputmode="decimal" data-key="' + esc(f.key) + '" value="' + esc(state[f.key]) + '"></label>';
-      case 'num2':
-        return '<div class="field"><span>' + esc(f.label) + '</span><div class="row">' + f.keys.map(function (k, i) {
-          return '<input type="number" inputmode="decimal" placeholder="' + esc(f.ph[i]) + '" data-key="' + esc(k) + '" value="' + esc(state[k]) + '">';
-        }).join('<span class="sep">/</span>') + '</div></div>';
-      case 'heading': return '<h3>' + esc(f.label) + '</h3>';
-      case 'note': return '<div class="note ' + f.level + '">' + f.html + '</div>';
-      case 'orth': return renderOrth(r);
-      case 'drugs': return renderDrugs();
-      case 'hintsBox': return renderHintsBox(r);
-      case 'illus': return renderIllus(f.name);
-      case 'abcd2Box': return '<div data-live="abcd2">' + renderAbcd2Box(r) + '</div>';
-      case 'therapy': return renderTherapy(r);
-      case 'summary': return renderSummary(r);
-      default: return '';
-    }
-  }
-
-  var openIllus = {};
-  function renderIllus(name) {
-    var I = window.VertigoIllustrations;
-    if (!I) return '';
-    var open = !!openIllus[name];
-    return '<details class="illus" data-illus="' + name + '"' + (open ? ' open' : '') + '><summary>Hogyan néz ki? (animált ábra)</summary>' +
-      (open ? I.get(name) : '') + '</details>';
-  }
-
-  function renderOrth(r) {
-    var o = r.orthostasis;
-    var inp = function (k, ph) { return '<input type="number" inputmode="numeric" placeholder="' + ph + '" data-key="' + k + '" value="' + esc(state[k]) + '">'; };
-    var html = '<div class="orth"><table><thead><tr><th></th><th>Szisztolés</th><th>Diasztolés</th><th>Pulzus</th></tr></thead><tbody>' +
-      '<tr><th>Fekve</th><td>' + inp('orth.supSys', 'Hgmm') + '</td><td>' + inp('orth.supDia', 'Hgmm') + '</td><td>' + inp('orth.supHr', '/perc') + '</td></tr>' +
-      '<tr><th>Állva (≤3 perc)</th><td>' + inp('orth.stSys', 'Hgmm') + '</td><td>' + inp('orth.stDia', 'Hgmm') + '</td><td>' + inp('orth.stHr', '/perc') + '</td></tr>' +
-      '</tbody></table>';
-    return html + '<div data-live="orth">' + orthResult(r) + '</div></div>';
-  }
-
-  function orthResult(r) {
-    var o = r.orthostasis, html = '';
-    if (o.done && !o.manual) {
-      html += '<div class="note ' + (o.positive ? 'warn' : (o.pots ? 'warn' : 'ok')) + '">' +
-        'Szisztolés esés: ' + o.dSys + ' Hgmm, diasztolés esés: ' + o.dDia + ' Hgmm' + (o.dHr !== null ? ', pulzusemelkedés: ' + o.dHr + '/perc' : '') + ' → ' +
-        (o.positive ? '<b>orthostaticus hypotonia</b>' : (o.pots ? '<b>POTS-ra utaló pulzusemelkedés</b> (hypotonia nélkül)' : 'nem kóros')) +
-        '<br><small>Kritérium: szisztolés ≥20 vagy diasztolés ≥10 Hgmm esés; POTS: ≥30/perc emelkedés (Freeman et al. 2011 – nem az SOP része).</small></div>';
-    } else {
-      html += radios('orth.manual', [{ v: 'pos', l: 'Pozitív' }, { v: 'neg', l: 'Negatív' }], 'Vagy az eredmény közvetlenül:');
-    }
-    return html;
-  }
-
-  function renderDrugs() {
-    return '<details class="drugs" open><summary>Szédülést okozó gyógyszerek (1. melléklet) – jelölje, ami szóba jön</summary><div class="grid">' +
-      C.DRUGS.map(function (d, i) {
-        var k = 'drug.' + i;
-        return '<label class="check"><input type="checkbox" data-key="' + k + '"' + (state[k] ? ' checked' : '') + '> ' + esc(d) + '</label>';
-      }).join('') + '</div></details>' +
-      '<div class="note warn">Kerülje a diagnózis elhamarkodását: gyógyszermellékhatás csak akkor véleményezhető, ha a panaszok kezdete egyértelműen összefügg az új gyógyszerrel, és az algoritmus további lépésein végighaladva más kórképeket nagy valószínűséggel kizártunk.</div>';
-  }
-
-  function renderHintsBox(r) {
-    var h = r.hints || L.hints(state);
-    if (!h.result) return '';
-    var cls = { central: 'danger', peripheral: 'ok', indeterminate: 'warn' }[h.result];
-    var title = { central: 'Centrális ok valószínű', peripheral: 'Perifériás ok valószínű', indeterminate: 'Nem egyértelmű / hiányos' }[h.result];
-    var hm = h.harmony.result === 'harmonic' ? 'harmonikus' : h.harmony.result === 'dysharmonic' ? 'diszharmonikus' : 'nem megítélhető';
-    return '<div class="note ' + cls + ' hints-box"><b>HINTS+ értékelés: ' + title + '</b>' +
-      (h.central.length ? '<div>Centrális jelek: ' + h.central.map(esc).join('; ') + '</div>' : '') +
-      (h.peripheral.length ? '<div>Perifériás jelek: ' + h.peripheral.map(esc).join('; ') + '</div>' : '') +
-      '<div>Spontán tünetcsoport: ' + hm + '</div>' +
-      (h.missing.length && h.result !== 'central' ? '<div>Hiányzik: ' + h.missing.map(esc).join('; ') + '</div>' : '') +
-      '<small>Bármely centrális jel → centrális; perifériás csak teljes perifériás mintázatnál (SOP 6.4 táblázat).</small></div>';
-  }
-
-  function renderAbcd2Box(r) {
-    var a = r.abcd2;
-    if (!a.complete) return '<div class="note info">ABCD2: ' + a.score + ' pont eddig (hiányos adatok).</div>';
-    return '<div class="note ' + (a.band === 'alacsony' ? 'info' : 'warn') + '"><b>ABCD2 = ' + a.score + '</b> – ' + a.band + ' kockázat (2 napos stroke-kockázat ≈ ' + a.risk2d + ')' +
-      (a.parts.length ? '<br><small>' + a.parts.join(', ') + '</small>' : '') +
-      '<br><small>Johnston et al., Lancet 2007. Izolált szédülésre nem validált – csak segítség, a klinikai megítélés dönt (SOP 5.4).</small></div>';
-  }
-
-  function renderTherapy(r) {
-    var html = '<p>Az SBO-n a terápia a tünetek enyhítését célozza; a hatékonyság egyénenként nagyon változó (SOP 8). Hazabocsátott betegnek áthidaló terápiaként:</p>';
-    html += C.THERAPY.map(function (g) {
-      return '<h3>' + esc(g.group) + '</h3><ul>' + g.items.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>';
-    }).join('');
-    html += '<h3>Oktatóvideók (betegnek is)</h3><ul>' + C.VIDEOS.map(function (v) {
-      return '<li><a href="' + v.url + '" target="_blank" rel="noopener">' + esc(v.label) + '</a></li>';
-    }).join('') + '</ul>';
-    html += '<div class="note info">Fontos a beteg adekvát tájékoztatása a további kivizsgálásról és az otthoni manőverekről; benignus etiológiánál nyugtassuk meg, hogy a panaszok idővel elmúlnak (SOP 8).</div>';
-    if (r.positional && r.positional.result === 'bppv') {
-      html += '<button type="button" class="btn" data-goto-ref="leaflet">BPPV betegtájékoztató megnyitása / nyomtatása</button>';
-    }
-    return html;
-  }
-
-  /* ---------------------------------------------------------------- */
-  /* Összegzés                                                         */
-  /* ---------------------------------------------------------------- */
-  var CAT = {
-    UNSTABLE: 'Instabil beteg – ABCDE', STROKE: 'Fokális neurológiai tünet – stroke protokoll', SECONDARY: 'Szekunder (nem neurológiai) szédülés',
-    AVS: 'Akut vestibularis szindróma (AVS)', SEVS: 'Spontán epizodikus vestibularis szindróma (s-EVS)', TEVS: 'Triggerelt epizodikus vestibularis szindróma (t-EVS)',
-  };
-
-  function reportText(r) {
+  function reportFindings(state, r) {
     var lines = [];
-    var now = new Date();
-    lines.push('SZÉDÜLÉS – SBO VIZSGÁLAT ÖSSZEFOGLALÓ (' + now.toLocaleString('hu-HU') + ')');
-    lines.push('Az ÉPC-HK SBO „Szédüléssel jelentkező beteg ellátása” SOP (v1.0) alapján, döntéstámogató alkalmazással.');
-    lines.push('');
     var rf = [['rf.nausea', 'hányinger'], ['rf.vomiting', 'hányás'], ['rf.headache', 'fejfájás'], ['rf.diplopia', 'kettőslátás'], ['rf.palpitation', 'palpitáció'],
       ['rf.chestPain', 'mellkasi fájdalom'], ['rf.dyspnea', 'dyspnoe'], ['rf.syncope', 'syncope']].filter(function (x) { return state[x[0]]; }).map(function (x) { return x[1]; });
     lines.push('ANAMNÉZIS:');
@@ -1860,7 +1871,6 @@ textarea.report.epi { width: 100%; resize: vertical; color: var(--text); font: 1
     var drugs = C.DRUGS.filter(function (d, i) { return state['drug.' + i]; });
     if (drugs.length) lines.push('- Szóba jövő gyógyszerek: ' + drugs.join(', '));
     lines.push('');
-
     var prim = [['prim.vitals', 'paraméterek'], ['prim.physical', 'fizikális+neurológiai vizsgálat'], ['prim.vbg', 'vénás vérgáz'], ['prim.ekg', 'EKG'],
       ['lab.glucose', 'vércukor'], ['lab.renal', 'vesefunkció'], ['lab.nak', 'Na/K'], ['lab.crp', 'CRP'], ['lab.cbc', 'vérkép']].filter(function (x) { return state[x[0]]; }).map(function (x) { return x[1]; });
     lines.push('ELVÉGZETT VIZSGÁLATOK: ' + (prim.length ? prim.join(', ') : 'nem jelölt'));
@@ -1884,46 +1894,182 @@ textarea.report.epi { width: 100%; resize: vertical; color: var(--text); font: 1
       if (state['roll']) lines.push('- Supine roll: ' + rollTxt[state['roll']]);
     }
     if (r.abcd2.complete) lines.push('- ABCD2: ' + r.abcd2.score + ' (' + r.abcd2.band + ' kockázat)');
+    return lines;
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Referencia fül                                                    */
+  /* ---------------------------------------------------------------- */
+  function reference(esc) {
+    var I = window.VertigoIllustrations;
+    var therapyHtml = C.THERAPY.map(function (g) {
+      return '<h4>' + esc(g.group) + '</h4><ul>' + g.items.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>';
+    }).join('') + '<h4>Oktatóvideók</h4><ul>' + C.VIDEOS.map(function (v) {
+      return '<li><a href="' + v.url + '" target="_blank" rel="noopener">' + esc(v.label) + '</a></li>';
+    }).join('') + '</ul>' +
+      '<h4>Szédülést okozó gyógyszerek (1. melléklet)</h4><ul class="cols">' + C.DRUGS.map(function (d) { return '<li>' + esc(d) + '</li>'; }).join('') + '</ul>';
+    var ill = { hints: ['hit', 'nystagmus', 'skew', 'hearing'], statokinetic: ['romberg', 'barany', 'gait'] };
+    return C.REFERENCE.map(function (sec) {
+      var body = sec.id === 'therapy' ? therapyHtml : sec.html;
+      if (I && ill[sec.id]) body += ill[sec.id].map(function (n) { return '<div class="ill-ref">' + I.get(n) + '</div>'; }).join('');
+      return { id: sec.id, title: sec.title, html: body };
+    });
+  }
+
+  SBO.register({
+    id: 'szedules',
+    title: 'Szédüléssel jelentkező beteg ellátása',
+    short: 'Szédülés',
+    description: 'AVS / s-EVS / t-EVS besorolás, HINTS+, pozícionális tesztek, BPPV, diszpozíció.',
+    sop: { number: '14', title: 'Szédüléssel jelentkező beteg ellátása', issuer: C.SOP.issuer, version: C.SOP.version, validUntil: C.SOP.validUntil },
+    steps: STEPS,
+    stepVisible: stepVisible,
+    stageToStep: {
+      stability: 'stability', focal: 'focal', nonneuro: 'nonneuro', classify: 'classify',
+      avs_pre: 'avs', hints: 'hints', avs_dispo: 'hints', sevs: 'sevs', tevs: 'tevs', done: 'summary',
+    },
+    evaluate: L.evaluate,
+    categories: {
+      UNSTABLE: 'Instabil beteg – ABCDE', STROKE: 'Fokális neurológiai tünet – stroke protokoll', SECONDARY: 'Szekunder (nem neurológiai) szédülés',
+      AVS: 'Akut vestibularis szindróma (AVS)', SEVS: 'Spontán epizodikus vestibularis szindróma (s-EVS)', TEVS: 'Triggerelt epizodikus vestibularis szindróma (t-EVS)',
+    },
+    dangerCategories: ['UNSTABLE', 'STROKE'],
+    differentialsTitle: 'Differenciáldiagnózis (SOP 5.2 táblázat)',
+    widgets: widgets,
+    illustrations: window.VertigoIllustrations,
+    reportFindings: reportFindings,
+    docSections: function (state, r) { return window.VertigoEpicrisis.sections(state, r, C); },
+    reference: reference,
+  });
+})();
+
+</script>
+  <!-- A motor indítása a modulok után -->
+  <script>
+/*
+ * SBO döntéstámogató – közös felület-motor.
+ * Az eljárásrend-specifikus tartalom (lépések, döntési logika, widgetek, dokumentáció, referencia)
+ * a protocols/<id>/protocol.js modulokban van; ez a fájl csak megjeleníti és kezeli őket.
+ */
+(function () {
+  'use strict';
+
+  var YN = [{ v: 'yes', l: 'Igen' }, { v: 'no', l: 'Nem' }];
+
+  var P = null;          // aktuális eljárásrend
+  var states = {};       // eljárásrendenként külön betegállapot (memóriában, nem tárolódik)
+  var state = {};
+  var current = null;    // aktuális lépés
+  var view = 'home';     // home | exam | reference
+  var openIllus = {};
+  var epiEdits = {};
+  var refOpen = null;
+
+  function esc(t) {
+    return String(t === undefined || t === null ? '' : t)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function $(id) { return document.getElementById(id); }
+  function stepById(id) { return P.steps.filter(function (x) { return x.id === id; })[0]; }
+  function evaluate() { return P.evaluate(state); }
+  function isExpired(p) { return p.sop.validUntil && new Date() > new Date(p.sop.validUntil + 'T23:59:59'); }
+
+  /* ---------------------------------------------------------------- */
+  /* Mezők                                                             */
+  /* ---------------------------------------------------------------- */
+  function radios(key, options, label) {
+    var v = state[key];
+    return '<fieldset class="field"><legend>' + esc(label) + '</legend><div class="seg">' +
+      options.map(function (o) {
+        var id = 'f_' + key.replace(/\W/g, '_') + '_' + o.v.replace(/\W/g, '_');
+        return '<input type="radio" id="' + id + '" name="' + esc(key) + '" value="' + esc(o.v) + '" data-key="' + esc(key) + '"' + (v === o.v ? ' checked' : '') + '>' +
+          '<label for="' + id + '">' + esc(o.l) + '</label>';
+      }).join('') +
+      (v ? '<button type="button" class="clear" data-clear="' + esc(key) + '" title="Válasz törlése">×</button>' : '') +
+      '</div></fieldset>';
+  }
+
+  function ctx(r) { return { state: state, r: r, esc: esc, radios: radios }; }
+
+  function renderField(f, r) {
+    if (f.when && !f.when(state, r)) return '';
+    switch (f.type) {
+      case 'yn': return radios(f.key, YN, f.label);
+      case 'choice': return radios(f.key, f.options, f.label);
+      case 'check':
+        return '<label class="check"><input type="checkbox" data-key="' + esc(f.key) + '"' + (state[f.key] ? ' checked' : '') + '> ' + esc(f.label) + '</label>';
+      case 'text':
+        return '<label class="field"><span>' + esc(f.label) + '</span><input type="text" data-key="' + esc(f.key) + '" value="' + esc(state[f.key]) + '"></label>';
+      case 'textarea':
+        return '<label class="field"><span>' + esc(f.label) + '</span><textarea data-key="' + esc(f.key) + '" rows="' + (f.rows || 3) + '">' + esc(state[f.key]) + '</textarea></label>';
+      case 'num':
+        return '<label class="field"><span>' + esc(f.label) + '</span><input type="number" inputmode="decimal" data-key="' + esc(f.key) + '" value="' + esc(state[f.key]) + '"></label>';
+      case 'num2':
+        return '<div class="field"><span>' + esc(f.label) + '</span><div class="row">' + f.keys.map(function (k, i) {
+          return '<input type="number" inputmode="decimal" placeholder="' + esc(f.ph[i]) + '" data-key="' + esc(k) + '" value="' + esc(state[k]) + '">';
+        }).join('<span class="sep">/</span>') + '</div></div>';
+      case 'heading': return '<h3>' + esc(f.label) + '</h3>';
+      case 'note': return '<div class="note ' + f.level + '">' + f.html + '</div>';
+      case 'illus': return renderIllus(f.name);
+      case 'widget': {
+        var w = P.widgets && P.widgets[f.name];
+        if (!w) return '<div class="note danger">Hiányzó widget: ' + esc(f.name) + '</div>';
+        return w.render(ctx(r)) + (w.live ? '<div data-live="' + esc(f.name) + '">' + w.live(ctx(r)) + '</div>' : '');
+      }
+      case 'summary': return renderSummary(r);
+      default: return '';
+    }
+  }
+
+  function renderIllus(name) {
+    if (!P.illustrations) return '';
+    var open = !!openIllus[name];
+    return '<details class="illus" data-illus="' + name + '"' + (open ? ' open' : '') + '><summary>Hogyan néz ki? (animált ábra)</summary>' +
+      (open ? P.illustrations.get(name) : '') + '</details>';
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Összegzés és dokumentáció                                         */
+  /* ---------------------------------------------------------------- */
+  function reportText(r) {
+    var lines = [];
+    lines.push(P.short.toUpperCase() + ' – SBO VIZSGÁLAT ÖSSZEFOGLALÓ (' + new Date().toLocaleString('hu-HU') + ')');
+    lines.push('Az ' + P.sop.issuer + ' „' + P.sop.title + '” SOP (' + P.sop.version + ') alapján, döntéstámogató alkalmazással.');
     lines.push('');
+    if (P.reportFindings) { lines = lines.concat(P.reportFindings(state, r)); lines.push(''); }
     lines.push('DÖNTÉSI ÚT:');
     r.path.forEach(function (p) { lines.push('- ' + p); });
     lines.push('');
-    lines.push('CSOPORTDIAGNÓZIS: ' + (r.category ? CAT[r.category] : 'még nem meghatározott'));
-    if (r.workingDx.length) {
-      lines.push('MUNKADIAGNÓZIS:');
-      r.workingDx.forEach(function (d) { lines.push('- ' + d.text); });
-    }
-    if (r.actions.length) {
-      lines.push('TEENDŐK:');
-      r.actions.forEach(function (a) { lines.push('- ' + a.text + ' [' + a.ref + ']'); });
-    }
-    if (r.disposition.length) {
-      lines.push('DISZPOZÍCIÓ:');
-      r.disposition.forEach(function (a) { lines.push('- ' + a.text + ' [' + a.ref + ']'); });
-    }
-    if (state['note']) { lines.push(''); lines.push('MEGJEGYZÉS: ' + state['note']); }
+    lines.push('CSOPORTDIAGNÓZIS: ' + (r.category ? P.categories[r.category] : 'még nem meghatározott'));
+    var list = function (title, arr, withRef) {
+      if (!arr || !arr.length) return;
+      lines.push(title + ':');
+      arr.forEach(function (a) { lines.push('- ' + a.text + (withRef && a.ref ? ' [' + a.ref + ']' : '')); });
+    };
+    list('MUNKADIAGNÓZIS', r.workingDx, false);
+    list('TEENDŐK', r.actions, true);
+    list('DISZPOZÍCIÓ', r.disposition, true);
+    if (state.note) { lines.push(''); lines.push('MEGJEGYZÉS: ' + state.note); }
     return lines.join('\n');
   }
 
-  var epiEdits = {}; // részenként: a felhasználó által szerkesztett szöveg
-  function epiSections(r) { return window.VertigoEpicrisis.sections(state, r, C); }
-
   function renderSummary(r) {
-    var secs = epiSections(r);
-    var html = '<label class="field"><span>Saját megjegyzés (a strukturált összegzésbe kerül)</span><textarea data-key="note" rows="2">' + esc(state.note) + '</textarea></label>' +
-      '<h3>Szöveg az SBO ambuláns lapba – részenként másolható</h3>' +
-      '<div class="note info">A „___” helyeket töltse ki. A szöveg itt szerkeszthető; a szerkesztett részt a további adatváltozás nem írja felül (az „Újragenerálás” igen). ' +
-      'Állítás csak a megadott adatokból kerül bele; „negál” csak kifejezett nemleges válasznál.</div>' +
-      '<div class="row gap"><button type="button" class="btn primary" data-copy-all="1">Minden rész másolása</button>' +
-      '<button type="button" class="btn" id="regenEpi">Újragenerálás az adatokból</button></div>';
-    html += secs.map(function (x) {
-      var v = epiEdits[x.id] !== undefined ? epiEdits[x.id] : x.text;
-      var rows = Math.min(14, Math.max(3, Math.ceil(v.length / 95) + (v.match(/\n/g) || []).length));
-      return '<div class="epi-sec"><div class="epi-head"><b>' + esc(x.title) + '</b>' +
-        (epiEdits[x.id] !== undefined ? ' <span class="ref">szerkesztve</span>' : '') +
-        '<button type="button" class="btn small" data-copy="epi-' + x.id + '">Másolás</button></div>' +
-        '<textarea id="epi-' + x.id + '" data-epi="' + x.id + '" class="report epi" rows="' + rows + '" spellcheck="false">' + esc(v) + '</textarea></div>';
-    }).join('');
+    var html = '<label class="field"><span>Saját megjegyzés (a strukturált összegzésbe kerül)</span><textarea data-key="note" rows="2">' + esc(state.note) + '</textarea></label>';
+    if (P.docSections) {
+      html += '<h3>Szöveg az SBO ambuláns lapba – részenként másolható</h3>' +
+        '<div class="note info">A „___” helyeket töltse ki. A szöveg itt szerkeszthető; a szerkesztett részt a további adatváltozás nem írja felül (az „Újragenerálás” igen). ' +
+        'Állítás csak a megadott adatokból kerül bele; „negál” csak kifejezett nemleges válasznál.</div>' +
+        '<div class="row gap"><button type="button" class="btn primary" data-copy-all="1">Minden rész másolása</button>' +
+        '<button type="button" class="btn" id="regenEpi">Újragenerálás az adatokból</button></div>';
+      html += P.docSections(state, r).map(function (x) {
+        var v = epiEdits[x.id] !== undefined ? epiEdits[x.id] : x.text;
+        var rows = Math.min(14, Math.max(3, Math.ceil(v.length / 95) + (v.match(/\n/g) || []).length));
+        return '<div class="epi-sec"><div class="epi-head"><b>' + esc(x.title) + '</b>' +
+          (epiEdits[x.id] !== undefined ? ' <span class="ref">szerkesztve</span>' : '') +
+          '<button type="button" class="btn small" data-copy="epi-' + x.id + '">Másolás</button></div>' +
+          '<textarea id="epi-' + x.id + '" data-epi="' + x.id + '" class="report epi" rows="' + rows + '" spellcheck="false">' + esc(v) + '</textarea></div>';
+      }).join('');
+    }
     html += '<h3>Strukturált összegzés (döntési út, SOP-hivatkozásokkal)</h3>' +
       '<div class="row gap"><button type="button" class="btn" data-copy="report">Összegzés másolása</button>' +
       '<button type="button" class="btn" onclick="window.print()">Nyomtatás</button></div>' +
@@ -1935,51 +2081,69 @@ textarea.report.epi { width: 100%; resize: vertical; color: var(--text); font: 1
   /* Döntéstámogató panel                                              */
   /* ---------------------------------------------------------------- */
   function renderPanel(r) {
-    var html = '<div class="cat ' + (r.category || 'none') + '">' + (r.category ? esc(CAT[r.category]) : 'Besorolás folyamatban…') + '</div>';
+    var danger = (P.dangerCategories || []).indexOf(r.category) >= 0;
+    var html = '<div class="cat ' + (r.category ? (danger ? 'danger' : '') : 'none') + '">' + (r.category ? esc(P.categories[r.category]) : 'Besorolás folyamatban…') + '</div>';
     if (r.path.length) html += '<h4>Döntési út</h4><ol class="path">' + r.path.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ol>';
     if (r.alerts.length) html += r.alerts.map(function (a) { return '<div class="note ' + a.level + '">' + esc(a.text) + ' <span class="ref">' + esc(a.ref) + '</span></div>'; }).join('');
     var list = function (title, arr) {
-      return arr.length ? '<h4>' + title + '</h4><ul>' + arr.map(function (a) { return '<li>' + esc(a.text) + ' <span class="ref">' + esc(a.ref) + '</span></li>'; }).join('') + '</ul>' : '';
+      return arr && arr.length ? '<h4>' + title + '</h4><ul>' + arr.map(function (a) { return '<li>' + esc(a.text) + ' <span class="ref">' + esc(a.ref) + '</span></li>'; }).join('') + '</ul>' : '';
     };
     html += list('Munkadiagnózis', r.workingDx);
     html += list('Teendők', r.actions);
     html += list('Diszpozíció', r.disposition);
-    if (r.differentials.length) {
-      html += '<details><summary>Differenciáldiagnózis (SOP 5.2 táblázat)</summary>' + r.differentials.map(function (d) {
+    if (r.differentials && r.differentials.length) {
+      html += '<details><summary>' + esc(P.differentialsTitle || 'Differenciáldiagnózis') + '</summary>' + r.differentials.map(function (d) {
         return '<div><b>' + esc(d.group) + ':</b> ' + d.items.map(esc).join(', ') + '</div>';
       }).join('') + '</details>';
     }
-    var next = STAGE_TO_STEP[r.stage];
-    if (next && next !== current) {
-      var st = STEPS.filter(function (x) { return x.id === next; })[0];
-      html += '<button type="button" class="btn primary block" data-goto="' + next + '">Következő teendő: ' + esc(st.title) + ' →</button>';
+    var next = P.stageToStep[r.stage];
+    if (next && next !== current && stepById(next)) {
+      html += '<button type="button" class="btn primary block" data-goto="' + next + '">Következő teendő: ' + esc(stepById(next).title) + ' →</button>';
     }
     return html;
   }
 
   /* ---------------------------------------------------------------- */
-  /* Fő renderelés                                                     */
+  /* Nézetek                                                           */
   /* ---------------------------------------------------------------- */
-  function render() {
-    var r = L.evaluate(state);
-    var steps = visibleSteps(r);
+  function renderHome() {
+    var cards = SBO.protocols.map(function (p) {
+      var exp = isExpired(p);
+      return '<button type="button" class="pcard" data-open="' + esc(p.id) + '">' +
+        '<span class="pnum">' + esc(p.sop.number || '') + '</span>' +
+        '<span class="pbody"><b>' + esc(p.title) + '</b><span>' + esc(p.description || '') + '</span>' +
+        '<small>' + esc(p.sop.issuer) + ' · ' + esc(p.sop.version) +
+        (p.sop.validUntil ? ' · <span class="' + (exp ? 'expired' : 'valid') + '">' + (exp ? 'lejárt: ' : 'érvényes: ') + esc(p.sop.validUntil.replace(/-/g, '.')) + '</span>' : '') +
+        '</small></span></button>';
+    }).join('');
+    $('home').innerHTML = '<h2>Eljárásrendek</h2><p class="muted">Válassza ki, melyik SOP szerint vizsgálja a beteget.</p>' +
+      '<div class="pgrid">' + cards + '</div>' +
+      '<p class="muted small">Új eljárásrend hozzáadása: a repó <code>docs/UJ_ELJARASREND.md</code> leírása szerint.</p>';
+  }
+
+  function renderReference() {
+    var secs = P.reference ? P.reference(esc) : [];
+    $('reference').innerHTML = secs.length ? secs.map(function (sec) {
+      return '<details class="refsec" id="ref-' + sec.id + '"' + (refOpen === sec.id ? ' open' : '') + '><summary>' + esc(sec.title) + '</summary><div>' + sec.html + '</div></details>';
+    }).join('') : '<p class="muted">Ehhez az eljárásrendhez nincs referencia-tartalom.</p>';
+    if (refOpen) {
+      var el = $('ref-' + refOpen);
+      if (el) el.scrollIntoView();
+      refOpen = null;
+    }
+  }
+
+  function renderExam() {
+    var r = evaluate();
+    var steps = P.steps.filter(function (st) { return !P.stepVisible || P.stepVisible(st.id, state, r); });
     if (!steps.some(function (s) { return s.id === current; })) current = steps[0].id;
-
-    document.getElementById('viewExam').classList.toggle('active', view === 'exam');
-    document.getElementById('viewRef').classList.toggle('active', view === 'reference');
-    document.getElementById('exam').hidden = view !== 'exam';
-    document.getElementById('reference').hidden = view !== 'reference';
-
-    if (view === 'reference') { renderReference(); return; }
-
-    var nextStage = STAGE_TO_STEP[r.stage];
-    document.getElementById('steps').innerHTML = steps.map(function (st, i) {
+    var nextStage = P.stageToStep[r.stage];
+    $('steps').innerHTML = steps.map(function (st, i) {
       var cls = st.id === current ? 'current' : '';
       if (st.id === nextStage && st.id !== current) cls += ' todo';
       return '<li><button type="button" class="' + cls + '" data-goto="' + st.id + '"><span class="n">' + (i + 1) + '</span>' + esc(st.title) + '</button></li>';
     }).join('');
-
-    var step = STEPS.filter(function (s) { return s.id === current; })[0];
+    var step = stepById(current);
     var idx = steps.indexOf(step);
     var html = '<h2>' + esc(step.title) + (step.ref ? ' <span class="ref">' + esc(step.ref) + '</span>' : '') + '</h2>';
     html += step.fields.map(function (f) { return renderField(f, r); }).join('');
@@ -1987,124 +2151,145 @@ textarea.report.epi { width: 100%; resize: vertical; color: var(--text); font: 1
       (idx > 0 ? '<button type="button" class="btn" data-goto="' + steps[idx - 1].id + '">← Vissza</button>' : '<span></span>') +
       (idx < steps.length - 1 ? '<button type="button" class="btn primary" data-goto="' + steps[idx + 1].id + '">Tovább →</button>' : '') +
       '</div>';
-    document.getElementById('form').innerHTML = html;
-    document.getElementById('panel').innerHTML = renderPanel(r);
+    $('form').innerHTML = html;
+    $('panel').innerHTML = renderPanel(r);
     var cur = document.querySelector('#steps .current');
     if (cur && cur.scrollIntoView && window.innerWidth <= 1100) cur.scrollIntoView({ block: 'nearest', inline: 'center' });
   }
 
-  function renderReference() {
-    var therapyHtml = C.THERAPY.map(function (g) {
-      return '<h4>' + esc(g.group) + '</h4><ul>' + g.items.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>';
-    }).join('') + '<h4>Oktatóvideók</h4><ul>' + C.VIDEOS.map(function (v) {
-      return '<li><a href="' + v.url + '" target="_blank" rel="noopener">' + esc(v.label) + '</a></li>';
-    }).join('') + '</ul>';
-    var drugs = '<h4>Szédülést okozó gyógyszerek (1. melléklet)</h4><ul class="cols">' + C.DRUGS.map(function (d) { return '<li>' + esc(d) + '</li>'; }).join('') + '</ul>';
-    document.getElementById('reference').innerHTML = C.REFERENCE.map(function (sec) {
-      var body = sec.id === 'therapy' ? therapyHtml + drugs : sec.html;
-      var I = window.VertigoIllustrations;
-      var ill = { hints: ['hit', 'nystagmus', 'skew', 'hearing'], statokinetic: ['romberg', 'barany', 'gait'] }[sec.id];
-      if (I && ill) body += ill.map(function (n) { return '<div class="ill-ref">' + I.get(n) + '</div>'; }).join('');
-      return '<details class="refsec" id="ref-' + sec.id + '"' + (refOpen === sec.id ? ' open' : '') + '><summary>' + esc(sec.title) + '</summary><div>' + body + '</div></details>';
-    }).join('');
-    if (refOpen) {
-      var el = document.getElementById('ref-' + refOpen);
-      if (el) el.scrollIntoView();
-      refOpen = null;
-    }
+  function render() {
+    if (view !== 'home' && !P) view = 'home';
+    $('home').hidden = view !== 'home';
+    $('exam').hidden = view !== 'exam';
+    $('reference').hidden = view !== 'reference';
+    $('viewHome').classList.toggle('active', view === 'home');
+    $('viewExam').classList.toggle('active', view === 'exam');
+    $('viewRef').classList.toggle('active', view === 'reference');
+    ['viewExam', 'viewRef', 'reset'].forEach(function (id) { $(id).hidden = !P; });
+    $('ptitle').textContent = P ? P.title : 'Válasszon eljárásrendet';
+    $('psub').textContent = P ? (P.sop.issuer + ' SOP ' + (P.sop.number ? P.sop.number + ', ' : '') + P.sop.version) : 'Döntéstámogató az SBO eljárásrendjei alapján';
+    var b = $('validity');
+    b.hidden = !(P && isExpired(P) && view !== 'home');
+    if (!b.hidden) b.textContent = 'Figyelem: a forrás SOP (' + P.sop.version + ') érvényessége ' + P.sop.validUntil.replace(/-/g, '.') + '. lejárt – ellenőrizze, van-e frissebb változat.';
+    document.title = P ? P.short + ' – SBO döntéstámogató' : 'SBO döntéstámogató';
+    if (view === 'home') renderHome();
+    else if (view === 'reference') renderReference();
+    else renderExam();
   }
-  var refOpen = null;
+
+  function openProtocol(id, keepView) {
+    var p = SBO.protocols.filter(function (x) { return x.id === id; })[0];
+    if (!p) { P = null; view = 'home'; render(); return; }
+    if (P) states[P.id] = { state: state, current: current, epiEdits: epiEdits };
+    P = p;
+    var saved = states[p.id] || { state: {}, current: p.steps[0].id, epiEdits: {} };
+    state = saved.state; current = saved.current; epiEdits = saved.epiEdits;
+    openIllus = {};
+    if (!keepView) view = 'exam';
+    render();
+  }
+
+  function route() {
+    var m = location.hash.match(/^#\/([\w-]+)(?:\/(ref))?/);
+    if (!m) { view = 'home'; render(); return; }
+    view = m[2] ? 'reference' : 'exam';
+    if (!P || P.id !== m[1]) openProtocol(m[1], true); else render();
+  }
+
+  function go(hash) { if (location.hash === hash) route(); else location.hash = hash; }
 
   /* ---------------------------------------------------------------- */
   /* Események                                                         */
   /* ---------------------------------------------------------------- */
-  function updatePanelOnly() {
-    var r = L.evaluate(state);
-    document.getElementById('panel').innerHTML = renderPanel(r);
-    var rep = document.getElementById('report');
+  function updateLive() {
+    if (!P || view !== 'exam') return;
+    var r = evaluate();
+    $('panel').innerHTML = renderPanel(r);
+    var rep = $('report');
     if (rep) rep.textContent = reportText(r);
-    if (document.querySelector('[data-epi]')) {
-      epiSections(r).forEach(function (x) {
-        var ta = document.getElementById('epi-' + x.id);
+    if (P.docSections && document.querySelector('[data-epi]')) {
+      P.docSections(state, r).forEach(function (x) {
+        var ta = $('epi-' + x.id);
         if (ta && epiEdits[x.id] === undefined) ta.value = x.text;
       });
     }
-    var lo = document.querySelector('[data-live="orth"]');
-    if (lo) lo.innerHTML = orthResult(r);
-    var la = document.querySelector('[data-live="abcd2"]');
-    if (la) la.innerHTML = renderAbcd2Box(r);
+    Array.prototype.forEach.call(document.querySelectorAll('[data-live]'), function (el) {
+      var w = P.widgets[el.getAttribute('data-live')];
+      if (w && w.live) el.innerHTML = w.live(ctx(r));
+    });
   }
+
+  window.addEventListener('hashchange', route);
 
   // Az ábrák csak lenyitva renderelődnek; a nyitott állapot megmarad az újrarajzolások között.
   document.addEventListener('toggle', function (e) {
     var d = e.target;
-    if (!d.getAttribute || !d.getAttribute('data-illus')) return;
+    if (!d.getAttribute || !d.getAttribute('data-illus') || !P || !P.illustrations) return;
     var name = d.getAttribute('data-illus');
     openIllus[name] = d.open;
-    if (d.open && !d.querySelector('svg')) d.insertAdjacentHTML('beforeend', window.VertigoIllustrations.get(name));
+    if (d.open && !d.querySelector('svg')) d.insertAdjacentHTML('beforeend', P.illustrations.get(name));
   }, true);
 
   document.addEventListener('change', function (e) {
     var t = e.target, key = t.getAttribute && t.getAttribute('data-key');
     if (!key) return;
     if (t.type === 'checkbox') state[key] = t.checked;
-    else if (t.type === 'radio') state[key] = t.value;
     else state[key] = t.value;
     if (t.type === 'radio' || t.type === 'checkbox') render();
-    else updatePanelOnly();
+    else updateLive();
   });
 
   document.addEventListener('input', function (e) {
-    if (e.target.getAttribute && e.target.getAttribute('data-epi')) { epiEdits[e.target.getAttribute('data-epi')] = e.target.value; return; }
-    var t = e.target, key = t.getAttribute && t.getAttribute('data-key');
+    var t = e.target;
+    if (t.getAttribute && t.getAttribute('data-epi')) { epiEdits[t.getAttribute('data-epi')] = t.value; return; }
+    var key = t.getAttribute && t.getAttribute('data-key');
     if (!key || (t.type !== 'text' && t.tagName !== 'TEXTAREA' && t.type !== 'number')) return;
     state[key] = t.value;
-    updatePanelOnly();
+    updateLive();
   });
 
+  function copy(btn, txt) {
+    var label = btn.textContent;
+    var done = function () { btn.textContent = 'Másolva ✓'; setTimeout(function () { btn.textContent = label; }, 1500); };
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(txt).then(done);
+    else {
+      var ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); done(); } catch (err) { /* nincs vágólap-hozzáférés */ }
+      document.body.removeChild(ta);
+    }
+  }
+
   document.addEventListener('click', function (e) {
-    var t = e.target.closest ? e.target.closest('[data-goto],[data-clear],[data-goto-ref],[data-copy],[data-copy-all],#regenEpi,#viewExam,#viewRef,#reset') : null;
+    var t = e.target.closest ? e.target.closest('[data-open],[data-goto],[data-clear],[data-goto-ref],[data-copy],[data-copy-all],#regenEpi,#viewHome,#viewExam,#viewRef,#reset') : null;
     if (!t) return;
-    if (t.hasAttribute('data-goto')) { current = t.getAttribute('data-goto'); view = 'exam'; render(); window.scrollTo(0, 0); return; }
+    if (t.hasAttribute('data-open')) { go('#/' + t.getAttribute('data-open')); return; }
+    if (t.hasAttribute('data-goto')) { current = t.getAttribute('data-goto'); if (view !== 'exam') go('#/' + P.id); else render(); window.scrollTo(0, 0); return; }
     if (t.hasAttribute('data-clear')) { delete state[t.getAttribute('data-clear')]; render(); return; }
-    if (t.hasAttribute('data-goto-ref')) { refOpen = t.getAttribute('data-goto-ref'); view = 'reference'; render(); return; }
-    if (t.id === 'viewExam') { view = 'exam'; render(); return; }
-    if (t.id === 'viewRef') { view = 'reference'; render(); return; }
+    if (t.hasAttribute('data-goto-ref')) { refOpen = t.getAttribute('data-goto-ref'); go('#/' + P.id + '/ref'); return; }
+    if (t.id === 'viewHome') { go('#/'); return; }
+    if (t.id === 'viewExam') { go('#/' + P.id); return; }
+    if (t.id === 'viewRef') { go('#/' + P.id + '/ref'); return; }
     if (t.id === 'reset') {
-      if (confirm('Új beteg: minden megadott adat törlődik. Folytatja?')) { state = {}; epiEdits = {}; current = 'stability'; view = 'exam'; render(); }
+      if (confirm('Új beteg: a(z) „' + P.short + '” eljárásrendben megadott adatok törlődnek. Folytatja?')) {
+        state = {}; epiEdits = {}; openIllus = {}; current = P.steps[0].id; delete states[P.id]; go('#/' + P.id);
+      }
       return;
     }
     if (t.id === 'regenEpi') { epiEdits = {}; render(); return; }
-    if (t.hasAttribute('data-copy') || t.hasAttribute('data-copy-all')) {
-      var txt;
-      if (t.hasAttribute('data-copy-all')) {
-        txt = Array.prototype.map.call(document.querySelectorAll('[data-epi]'), function (ta) {
-          return ta.closest('.epi-sec').querySelector('b').textContent.toUpperCase() + ':\n' + ta.value;
-        }).join('\n\n');
-      } else {
-        var src = document.getElementById(t.getAttribute('data-copy'));
-        txt = src.tagName === 'TEXTAREA' ? src.value : src.textContent;
-      }
-      var label = t.textContent;
-      var done = function () { t.textContent = 'Másolva ✓'; setTimeout(function () { t.textContent = label; }, 1500); };
-      if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(txt).then(done);
-      else {
-        var ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select();
-        try { document.execCommand('copy'); done(); } catch (err) { /* nincs vágólap-hozzáférés */ }
-        document.body.removeChild(ta);
-      }
+    if (t.hasAttribute('data-copy-all')) {
+      copy(t, Array.prototype.map.call(document.querySelectorAll('[data-epi]'), function (ta) {
+        return ta.closest('.epi-sec').querySelector('b').textContent.toUpperCase() + ':\n' + ta.value;
+      }).join('\n\n'));
+      return;
+    }
+    if (t.hasAttribute('data-copy')) {
+      var src = $(t.getAttribute('data-copy'));
+      copy(t, src.tagName === 'TEXTAREA' ? src.value : src.textContent);
     }
   });
 
-  // SOP érvényességi figyelmeztetés
-  var valid = new Date(C.SOP.validUntil + 'T23:59:59');
-  if (new Date() > valid) {
-    var b = document.getElementById('validity');
-    b.hidden = false;
-    b.textContent = 'Figyelem: a forrás SOP (' + C.SOP.version + ') érvényessége ' + C.SOP.validUntil.replace(/-/g, '.') + '. lejárt – ellenőrizze, van-e frissebb változat.';
-  }
-
-  render();
+  // Egyetlen eljárásrend esetén is a kezdőlap jelenik meg, hogy a bővítés látható legyen.
+  route();
 })();
 
 </script>

@@ -1,15 +1,25 @@
-# Szédülés SBO – döntéstámogató
+# SBO döntéstámogató
 
-Böngészőben futó döntéstámogató a szédüléssel jelentkező beteg sürgősségi vizsgálatához, az
-**ÉPC-HK SBO „Szédüléssel jelentkező beteg ellátása” SOP (v1.0, 2023.09.01.)** alapján.
+Böngészőben futó döntéstámogató a sürgősségi osztály eljárásrendjei (SOP) alapján. Több eljárásrendet kezel:
+a kezdőlapon választható ki, melyik szerint vizsgálja a beteget. Mindegyikhez tartozik lépésenkénti vizsgálat,
+élő döntési panel SOP-hivatkozásokkal, az ambuláns lapba részenként másolható dokumentáció és referencia.
 
-> ⚠️ Döntéstámogató eszköz, nem helyettesíti a klinikai ítéletet. A forrás SOP érvényessége
-> 2025.12.31-én lejárt. Az alkalmazás ezt induláskor jelzi; használat előtt ellenőrizze, van-e frissebb változat.
+| # | Eljárásrend | Modul | SOP |
+|---|---|---|---|
+| 14 | Szédüléssel jelentkező beteg ellátása | `protocols/szedules/` | ÉPC-HK SBO, v1.0 (2023.09.01.) – **érvényessége 2025.12.31-én lejárt** |
+
+Új eljárásrend hozzáadása: [`docs/UJ_ELJARASREND.md`](docs/UJ_ELJARASREND.md) (sablon: `protocols/_sablon/`).
+
+> ⚠️ Döntéstámogató eszköz, nem helyettesíti a klinikai ítéletet. Lejárt érvényességű SOP-nál az app figyelmeztet.
 
 ## Használat
 
 Nincs telepítés és build. Nyissa meg az `index.html`-t böngészőben, vagy szolgálja ki statikusan
 (pl. GitHub Pages). Adatot nem tárol és nem küld: minden a böngésző memóriájában marad.
+A kezdőlapon válassza ki az eljárásrendet; eljárásrendek között váltva a megkezdett adatok megmaradnak
+(oldalfrissítésig), az „Új beteg” gomb csak az aktuális eljárásrend adatait törli.
+
+A szédülés-modul lépései:
 
 1. **Stabilitás, primer vizsgálat:** ABCDE, paraméterek, EKG, vénás vérgáz, labor, orthostasis teszt (automatikus kiértékeléssel).
 2. **Anamnézis:** trauma, kezdet, provokáló tényezők, hallás, „red flag” tünetek, előzmények.
@@ -29,16 +39,21 @@ A **Referencia** fülön az SOP vizsgálati leírásai, manőverei, gyógyszerei
 
 ## Felépítés
 
-| Fájl | Tartalom |
+| Hely | Tartalom |
 |---|---|
-| `js/logic.js` | Döntési logika (tiszta függvények, DOM nélkül): `evaluate`, `hints`, `harmony`, `abcd2`, `orthostasis`, `positional` |
-| `js/content.js` | Referencia-tartalom (gyógyszerlista, terápia, leírások) |
-| `js/app.js` | Felület: lépések, élő panel, összegzés |
-| `tests/logic.test.js` | Az SOP 1–3. ábrájának összes ágát lefedő tesztek |
+| `js/core/registry.js` | Eljárásrend-regiszter (`SBO.register`), közös szöveg- és mező-segédek |
+| `js/core/engine.js` | Közös felület: kezdőlap, lépések, mezők, élő panel, dokumentáció, másolás, referencia, útválasztás (`#/<id>`) |
+| `protocols/<id>/` | Egy eljárásrend: `logic.js` (döntési logika), `content.js`, `docs.js` (ambuláns lap szövege), `illustrations.js`, `protocol.js` (lépések, regisztráció) |
+| `protocols/_sablon/` | Kiinduló minta új eljárásrendhez (nincs betöltve) |
+| `tests/protocols.test.js` | Szerződés-teszt: minden betöltött modult (és a sablont) ellenőrzi |
+| `tests/<id>/` | Az adott eljárásrend döntési fájának és dokumentációjának tesztjei |
+| `scripts/build-standalone.js` | Egyfájlos, offline változat készítése az `index.html` alapján |
 
 Tesztek futtatása: `npm test` (Node ≥18, függőség nélkül).
 
-## Döntési szabályok és források
+### Szédülés-modul (SOP 14)
+
+#### Döntési szabályok és források
 
 | Szabály | Forrás |
 |---|---|
@@ -60,20 +75,20 @@ az alkalmazás ezt a felületen is jelzi.
 
 ## Egyfájlos változat
 
-A `szedules-sbo.html` a teljes app egyetlen fájlban (CSS és JS beágyazva): letölthető, és dupla kattintással offline is megnyitható.
+A `sbo-dontestamogato.html` a teljes app (minden eljárásrenddel) egyetlen fájlban (CSS és JS beágyazva): letölthető, és dupla kattintással offline is megnyitható.
 A forrásfájlok módosítása után újragenerálandó: `npm run build`.
 
 ## Animált ábrák
 
 A HINTS+ lépésben minden vizsgálat alatt egy „Hogyan néz ki?” gomb animált, sematikus SVG-ábrát nyit meg
-(`js/illustrations.js`): Head Impulse Test (normál VOR vs. korrekciós szakkád), a nystagmus típusai
+(`protocols/szedules/illustrations.js`): Head Impulse Test (normál VOR vs. korrekciós szakkád), a nystagmus típusai
 (iránytartó horizontális, vertikális, rotatoros, tekintésirányú), skew deviation (váltakozó takarás), ujjdörzsöléses
 hallásvizsgálat, Romberg-próba, Bárány-féle mutatópróba, vakjárás. Ugyanezek a Referencia fülön is megtalálhatók.
 Szemből nézett ábrákon a beteg jobb oldala a kép bal oldalán van.
 
 ## Dokumentáció az SBO ambuláns lapba
 
-Az Összegzés lépés a lap mezőinek megfelelően, **részenként másolható** szöveget készít (`js/epicrisis.js`):
+Az Összegzés lépés a lap mezőinek megfelelően, **részenként másolható** szöveget készít (`protocols/szedules/docs.js`):
 Jelen panasz, Status (paraméterek, EKG, labor), Neurológiai status (vestibularis vizsgálat), Epikrízis,
 Diagnózis (BNO-javaslattal, ellenőrizendő), Javaslat. A megfogalmazás az osztályon használt dokumentációs
 fordulatokat követi („A fentebb részletezett anamnézisű beteget … vizsgáltuk ambulanciánkon”, „… negál”,
