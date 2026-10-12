@@ -70,3 +70,11 @@ A HINTS+ lépésben minden vizsgálat alatt egy „Hogyan néz ki?” gomb anim�
 (iránytartó horizontális, vertikális, rotatoros, tekintésirányú), skew deviation (váltakozó takarás), ujjdörzsöléses
 hallásvizsgálat, Romberg-próba, Bárány-féle mutatópróba, vakjárás. Ugyanezek a Referencia fülön is megtalálhatók.
 Szemből nézett ábrákon a beteg jobb oldala a kép bal oldalán van.
+
+## Epikrízis-minta
+
+Az Összegzés lépés az SBO ambuláns lapba másolható epikrízist készít (`js/epicrisis.js`): anamnézis, primer
+vizsgálat (vitális értékek, EKG, labor), a kategória szerinti vestibularis vizsgálat, értelmezés, diszpozíció,
+munkadiagnózis, BNO-javaslat (ellenőrizendő) és Javaslat (hazaadott terápia, manőverek, kontroll, mikor jöjjön vissza).
+Csak a megadott adatokból következő állítások kerülnek bele; ami hiányzik, ott `___` kitöltendő hely marad.
+A szöveg az appban szerkeszthető, majd egy gombbal másolható.

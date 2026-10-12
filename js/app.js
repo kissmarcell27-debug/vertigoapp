@@ -28,16 +28,20 @@
         { type: 'note', when: function (s) { return s.unstable === 'yes'; }, level: 'danger', html: 'Ellátás ABCDE séma szerint – az SOP ezt nem részletezi.' },
         { type: 'heading', label: 'Primer vizsgálat (minden stabil betegnél)' },
         { type: 'check', key: 'prim.vitals', label: 'Paraméterek: vérnyomás, pulzus, szaturáció' },
+        { type: 'num2', keys: ['vit.sys', 'vit.dia'], label: 'Vérnyomás (Hgmm)', ph: ['szisztolés', 'diasztolés'] },
+        { type: 'num2', keys: ['vit.hr', 'vit.spo2'], label: 'Pulzus (/perc) és SpO₂ (%)', ph: ['pulzus', 'SpO₂'] },
         { type: 'check', key: 'prim.physical', label: 'Fizikális és neurológiai vizsgálat' },
         { type: 'check', key: 'prim.history', label: 'Releváns anamnézis' },
         { type: 'check', key: 'prim.vbg', label: 'Vénás vérgáz' },
         { type: 'check', key: 'prim.ekg', label: 'EKG' },
+        { type: 'text', key: 'ekg.text', label: 'EKG lelet (epikrízisbe)' },
         { type: 'heading', label: 'Labor' },
         { type: 'check', key: 'lab.glucose', label: 'Vércukor' },
         { type: 'check', key: 'lab.renal', label: 'Vesefunkció' },
         { type: 'check', key: 'lab.nak', label: 'Szérum Na, K' },
         { type: 'check', key: 'lab.crp', label: 'CRP' },
         { type: 'check', key: 'lab.cbc', label: 'Nagy vérkép' },
+        { type: 'text', key: 'lab.text', label: 'Vérgáz / labor eredmény röviden (epikrízisbe)' },
         { type: 'heading', label: '± Orthostasis teszt' },
         { type: 'orth' },
       ],
@@ -45,6 +49,7 @@
     {
       id: 'history', title: 'Anamnézis', ref: 'SOP 5.1',
       fields: [
+        { type: 'num', key: 'pt.age', label: 'Életkor (év)' },
         { type: 'yn', key: 'hx.trauma', label: 'Történt koponyatrauma a közelmúltban?' },
         { type: 'text', key: 'hx.onset', label: 'Mikor kezdődött a szédülés?' },
         { type: 'text', key: 'hx.provoke', label: 'Mi provokálja / enyhíti? Befolyásolja a fej helyzete (melyik irány)?' },
@@ -193,6 +198,9 @@
           { v: 'geo_right', l: 'Geotrop ny. mindkét oldalon, JOBBRA fordításkor erősebb' },
           { v: 'geo_left', l: 'Geotrop ny. mindkét oldalon, BALRA fordításkor erősebb' },
           { v: 'atypical', l: 'Egyéb / atípusos mintázat' }, { v: 'nd', l: 'Nem végezhető' }] },
+        { type: 'yn', key: 'tevs.maneuver', label: 'Történt repozíciós manőver (Epley / Barbecue) az SBO-n?', when: function (s, r) { return r.positional.result === 'bppv'; } },
+        { type: 'choice', key: 'tevs.maneuverEffect', label: 'Hatása', when: function (s, r) { return r.positional.result === 'bppv' && s['tevs.maneuver'] === 'yes'; }, options: [
+          { v: 'better', l: 'Panaszai mérséklődtek' }, { v: 'same', l: 'Érdemben nem változott' }] },
         { type: 'choice', key: 'tevs.severity', label: 'Súlyosság', when: function (s, r) { return r.positional.result === 'bppv'; }, options: [
           { v: 'mild', l: 'Enyhe, ambulánsan menedzselhető' }, { v: 'severe', l: 'Súlyos, ambulánsan nem menedzselhető' }] },
         { type: 'heading', label: 'Orthostasis teszt', when: function (s, r) { return r.positional.result === 'negative'; } },
@@ -201,7 +209,19 @@
     },
     {
       id: 'therapy', title: 'Terápia és tájékoztatás', ref: 'SOP 8',
-      fields: [{ type: 'therapy' }],
+      fields: [
+        { type: 'therapy' },
+        { type: 'heading', label: 'Epikrízishez' },
+        { type: 'text', key: 'sbo.therapy', label: 'Az SBO-n alkalmazott terápia (pl. „iv. metoclopramid 10 mg és 500 ml krisztalloid infúzió”)' },
+        { type: 'choice', key: 'dc.state', label: 'Állapot távozáskor', options: [
+          { v: 'free', l: 'Panaszmentes' }, { v: 'better', l: 'Panaszai mérséklődtek' }, { v: 'same', l: 'Érdemben nem változott' }] },
+        { type: 'heading', label: 'Hazaadott tüneti terápia (a Javaslatba kerül)' },
+        { type: 'check', key: 'rx.arlevert', label: 'Arlevert 3×1 tbl p.o.' },
+        { type: 'check', key: 'rx.daedalon', label: 'Daedalon 50 mg p.o. 4–6 óránként' },
+        { type: 'check', key: 'rx.xanax', label: 'Xanax / Frontin 0,5 mg p.o. 8 óránként' },
+        { type: 'check', key: 'rx.rivotril', label: 'Rivotril 0,25–0,5 mg p.o. 8–12 óránként' },
+        { type: 'check', key: 'rx.cerucal', label: 'Cerucal 10 mg p.o. 6 óránként' },
+      ],
     },
     {
       id: 'summary', title: 'Összegzés / dokumentáció', ref: '',
@@ -426,9 +446,20 @@
     return lines.join('\n');
   }
 
+  var epiEdited = false;
+  function epiText(r) { return window.VertigoEpicrisis.epicrisis(state, r, C); }
+
   function renderSummary(r) {
-    return '<label class="field"><span>Saját megjegyzés (bekerül a szövegbe)</span><textarea data-key="note" rows="3">' + esc(state.note) + '</textarea></label>' +
-      '<div class="row gap"><button type="button" class="btn primary" id="copyReport">Szöveg másolása</button>' +
+    var epi = document.getElementById('epi');
+    var epiVal = epiEdited && epi ? epi.value : epiText(r);
+    return '<label class="field"><span>Saját megjegyzés (bekerül a szövegbe)</span><textarea data-key="note" rows="2">' + esc(state.note) + '</textarea></label>' +
+      '<h3>Epikrízis-minta az SBO ambuláns lapba</h3>' +
+      '<div class="note info">A „___” helyeket töltse ki. A szöveg itt szerkeszthető; szerkesztés után a további adatváltozás nem írja felül (az „Újragenerálás” igen).</div>' +
+      '<div class="row gap"><button type="button" class="btn primary" data-copy="epi">Epikrízis másolása</button>' +
+      '<button type="button" class="btn" id="regenEpi">Újragenerálás az adatokból</button></div>' +
+      '<textarea id="epi" class="report epi" rows="22" spellcheck="false">' + esc(epiVal) + '</textarea>' +
+      '<h3>Strukturált összegzés (döntési út, SOP-hivatkozásokkal)</h3>' +
+      '<div class="row gap"><button type="button" class="btn" data-copy="report">Összegzés másolása</button>' +
       '<button type="button" class="btn" onclick="window.print()">Nyomtatás</button></div>' +
       '<pre id="report" class="report">' + esc(reportText(r)) + '</pre>';
   }
@@ -525,6 +556,8 @@
     document.getElementById('panel').innerHTML = renderPanel(r);
     var rep = document.getElementById('report');
     if (rep) rep.textContent = reportText(r);
+    var epi = document.getElementById('epi');
+    if (epi && !epiEdited) epi.value = epiText(r);
     var lo = document.querySelector('[data-live="orth"]');
     if (lo) lo.innerHTML = orthResult(r);
     var la = document.querySelector('[data-live="abcd2"]');
@@ -551,6 +584,7 @@
   });
 
   document.addEventListener('input', function (e) {
+    if (e.target.id === 'epi') { epiEdited = true; return; }
     var t = e.target, key = t.getAttribute && t.getAttribute('data-key');
     if (!key || (t.type !== 'text' && t.tagName !== 'TEXTAREA' && t.type !== 'number')) return;
     state[key] = t.value;
@@ -558,7 +592,7 @@
   });
 
   document.addEventListener('click', function (e) {
-    var t = e.target.closest ? e.target.closest('[data-goto],[data-clear],[data-goto-ref],#copyReport,#viewExam,#viewRef,#reset') : null;
+    var t = e.target.closest ? e.target.closest('[data-goto],[data-clear],[data-goto-ref],[data-copy],#regenEpi,#viewExam,#viewRef,#reset') : null;
     if (!t) return;
     if (t.hasAttribute('data-goto')) { current = t.getAttribute('data-goto'); view = 'exam'; render(); window.scrollTo(0, 0); return; }
     if (t.hasAttribute('data-clear')) { delete state[t.getAttribute('data-clear')]; render(); return; }
@@ -566,12 +600,19 @@
     if (t.id === 'viewExam') { view = 'exam'; render(); return; }
     if (t.id === 'viewRef') { view = 'reference'; render(); return; }
     if (t.id === 'reset') {
-      if (confirm('Új beteg: minden megadott adat törlődik. Folytatja?')) { state = {}; current = 'stability'; view = 'exam'; render(); }
+      if (confirm('Új beteg: minden megadott adat törlődik. Folytatja?')) { state = {}; epiEdited = false; current = 'stability'; view = 'exam'; render(); }
       return;
     }
-    if (t.id === 'copyReport') {
-      var txt = document.getElementById('report').textContent;
-      var done = function () { t.textContent = 'Másolva ✓'; setTimeout(function () { t.textContent = 'Szöveg másolása'; }, 1500); };
+    if (t.id === 'regenEpi') {
+      epiEdited = false;
+      document.getElementById('epi').value = epiText(L.evaluate(state));
+      return;
+    }
+    if (t.hasAttribute('data-copy')) {
+      var src = document.getElementById(t.getAttribute('data-copy'));
+      var txt = src.tagName === 'TEXTAREA' ? src.value : src.textContent;
+      var label = t.textContent;
+      var done = function () { t.textContent = 'Másolva ✓'; setTimeout(function () { t.textContent = label; }, 1500); };
       if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(txt).then(done);
       else {
         var ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select();
