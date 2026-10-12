@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Szédülés SBO</title>
+  <meta name="description" content="Döntéstámogató a szédüléssel jelentkező beteg sürgősségi vizsgálatához, az ÉPC-HK SBO SOP alapján.">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <h1>Szédüléssel jelentkező beteg</h1>
+      <p>Döntéstámogató az ÉPC-HK SBO SOP (v1.0) alapján</p>
+    </div>
+    <nav class="tabs">
+      <button type="button" id="viewExam" class="active">Vizsgálat</button>
+      <button type="button" id="viewRef">Referencia</button>
+      <button type="button" id="reset" class="danger">Új beteg</button>
+    </nav>
+  </header>
+  <div id="validity" class="banner" hidden></div>
+  <div class="disclaimer">
+    Döntéstámogató eszköz – nem helyettesíti a klinikai ítéletet és a szakmai felelősséget. Adatot nem tárol és nem küld: minden a böngészőben marad, és oldalfrissítéskor törlődik.
+  </div>
+
+  <main id="exam" class="layout">
+    <aside class="steps-wrap"><ol id="steps" class="steps"></ol></aside>
+    <section id="form" class="card form"></section>
+    <aside id="panel" class="card panel" aria-live="polite"></aside>
+  </main>
+  <a href="#panel" class="jump">Döntéstámogatás ↓</a>
+  <main id="reference" class="reference" hidden></main>
+
+  <script src="js/logic.js"></script>
+  <script src="js/content.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
