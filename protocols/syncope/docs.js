@@ -44,7 +44,7 @@
     var L = [T.vitalsLine(s)];
     var a = r.as;
     if (a && a.done) {
-      if (a.manual) L.push('Aktív állás vizsgálat: ' + (a.oh ? 'pozitív.' : 'negatív.'));
+      if (a.manual) L.push('Aktív állás vizsgálat: ' + (a.notDone ? 'nem volt elvégezhető.' : a.oh ? 'pozitív.' : 'negatív.'));
       else {
         var p = function (sys, dia, hr) { return (T.val(s, sys) || B) + '/' + (T.val(s, dia) || B) + ' Hgmm' + (T.val(s, hr) ? ', P: ' + T.val(s, hr) + '/min' : ''); };
         var line = 'Aktív állás vizsgálat: fekve ' + p('as.supSys', 'as.supDia', 'as.supHr') + '; 0 perc ' + p('as.0Sys', 'as.0Dia', 'as.0Hr');
@@ -55,7 +55,7 @@
     }
     if (s['csm.result'] === 'pos') L.push('Carotis sinus masszázs: pozitív' + (r.csm.dx === 'CSS' ? ', a panaszok reprodukálódtak (carotis sinus szindróma).' : ' (carotis sinus hyperaesthesia).'));
     else if (s['csm.result'] === 'neg') L.push('Carotis sinus masszázs: negatív.');
-    if (s['l.physical'] === 'yes') L.push('Fizikális vizsgálat során kóros eltérés nem észlelhető.');
+    if (s['ex.physical'] === 'yes') L.push('Fizikális vizsgálat során kóros eltérés nem észlelhető.');
     L.push('EKG: ' + T.or(T.val(s, 'ekg.text')));
     L.push('Labor: ' + T.or(T.val(s, 'lab.text')));
     return L.join('\n');
@@ -74,10 +74,10 @@
   function epicrisis(s, r) {
     var t = ['A fentebb részletezett anamnézisű beteget ' + (s.presyncope ? 'presyncope' : 'eszméletvesztés') + ' miatt vizsgáltuk ambulanciánkon.'];
     if (s.unstable === 'no') t.push('A beteg vizsgálóba érkezéskor stabil vitális paraméterekkel rendelkezett.');
-    if (s['l.physical'] === 'yes') t.push('Fizikális vizsgálata során alarmírozó eltérést nem észleltem.');
-    if (s['l.ekg'] === 'yes') t.push('EKG-n kóros eltérést nem láttam.');
+    if (s['ex.physical'] === 'yes') t.push('Fizikális vizsgálata során alarmírozó eltérést nem észleltem.');
+    if (s['ekg.normal'] === 'yes') t.push('EKG-n kóros eltérést nem láttam.');
     else if (T.val(s, 'ekg.text')) t.push('EKG: ' + T.val(s, 'ekg.text') + '.');
-    if (r.as && r.as.done) t.push('Az aktív állás vizsgálat ' + (r.as.oh ? 'ortosztatikus hypotoniát igazolt.' : 'negatív volt.'));
+    if (r.as && r.as.done && !r.as.notDone) t.push('Az aktív állás vizsgálat ' + (r.as.oh ? 'ortosztatikus hypotoniát igazolt.' : 'negatív volt.'));
     if (r.category === 'OTHER') {
       t.push('További ellátása: ' + (r.actions.length ? r.actions.map(function (a) { return a.text; }).join(' ') : B));
       return t.join(' ');

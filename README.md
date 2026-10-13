@@ -12,6 +12,8 @@ a kezdőlapon választható ki, melyik szerint vizsgálja a beteget. Mindegyikhe
 
 Új eljárásrend hozzáadása: [`docs/UJ_ELJARASREND.md`](docs/UJ_ELJARASREND.md) (sablon: `protocols/_sablon/`).
 
+**Weboldalként közzététel (GitHub Pages):** lépésről lépésre a [`docs/GITHUB_PAGES.md`](docs/GITHUB_PAGES.md) leírásban. A bekapcsolás előtt olvassa el a láthatóságról és a szerzői jogról szóló részt.
+
 > ⚠️ Döntéstámogató eszköz, nem helyettesíti a klinikai ítéletet. Lejárt érvényességű SOP-nál az app figyelmeztet.
 
 ## Használat
@@ -102,8 +104,11 @@ szerkeszthető; a szerkesztett részt a további adatváltozás nem írja felül
 
 ### Syncope-modul (SOP 5)
 
-TLOC-besorolás (syncope / nem syncope / nem átmeneti / fejtrauma – utóbbinál átlépés a fejsérülés-modulba),
-kezdeti vizsgálatok, **aktív állás vizsgálat** az SOP 4.4 kritériumaival (>20 / >10 Hgmm esés vagy <90 Hgmm;
+A lépések a SOP 4. ábrájának sorrendjét követik, mindegyik tetején „Mit kell itt tenni?” útmutatóval:
+stabilitás és TLOC-besorolás (fejtraumánál átlépés a fejsérülés-modulba) → anamnézis (testhelyzet, prodroma kötelező) →
+vizsgálatok → EKG (normál? csak kóros EKG-nál eltéréslista; a bizonyító eltérés automatikusan aritmogén diagnózis és
+magas kockázat) → egyértelmű diagnózis (egy választás) → rizikóbecslés három kérdésben (magas? → közepes? → alacsony
+feltételei), az eredmény indoklásával → diszpozíció. Részletek: **aktív állás vizsgálat** az SOP 4.4 kritériumaival (>20 / >10 Hgmm esés vagy <90 Hgmm;
 POTS: >30/perc vagy >120/perc OH nélkül) és az OH-syncope bizonyosságával (igazolt / valószínű / lehetséges),
 carotis sinus masszázs (CSS / CSH), egyértelmű diagnózisok (4.5), rizikóbecslés (5.1–5.3; alacsony kockázathoz
 negatív fizikális vizsgálat és normál EKG is kell, a magas kockázati lista áttekintését meg kell erősíteni),
