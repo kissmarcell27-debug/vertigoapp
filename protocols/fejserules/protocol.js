@@ -257,6 +257,7 @@
     title: 'Fejsérülés, intracranialis vérzés',
     short: 'Fejsérülés / IC vérzés',
     description: 'Fejsérültek rizikócsoportja, CT-indikáció és időzítés, antikoagulált / TAG-gátlót szedő betegek, obszerváció, aranyóra, nem traumás ICH és SAV.',
+    icon: 'headinjury',
     color: { base: '#ed7d31', ink: '#b2561a', inkDark: '#f6a66e' }, // a nyomtatott SOP fejlécszíne
     sop: C.SOP,
     steps: STEPS,

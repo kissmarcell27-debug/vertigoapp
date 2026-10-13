@@ -126,3 +126,9 @@ Ahol a modul túlmegy az SOP szövegén, a felület jelzi:
 - **NOAC:** a hatását az INR nem tükrözi megbízhatóan.
 - **Antikoagulált beteg tájékoztatója:** a „vérhígítót ne szedjen” tanács helyett egyedi döntés kell.
 
+## Ikoncsomag
+
+`js/core/icons.js`: 24×24-es vonalas SVG ikonok (szédülés, syncope, fejsérülés, triage, általános SOP) és az alkalmazás-ikon
+(favicon, a logó kék→türkiz átmenetével). Az ikonok a környező szín szerint színeződnek; az eljárásrend az `icon` mezővel
+választ. Önálló SVG-fájlként az `assets/icons/` mappában (az `npm run build` újragenerálja).
+

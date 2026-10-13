@@ -26,6 +26,7 @@ referencia fület és a kezdőlapi listát. A modul csak az adott SOP tartalmát
 | `id` | igen | URL-azonosító (`#/<id>`), kisbetű, szám, kötőjel |
 | `title`, `short` | igen | Teljes és rövid név (fejléc, böngészőfül, összegzés) |
 | `description` | | Egysoros leírás a kezdőlapi kártyára |
+| `icon` | | Ikon neve a `js/core/icons.js` csomagból (`vertigo`, `syncope`, `headinjury`, `triage`, `sop`); új ikon ott vehető fel |
 | `color` | | Az eljárásrend azonosító színe: `{ base, ink, inkDark }`. `base` = a nyomtatott SOP fejlécszíne; `ink` / `inkDark` = ennek szövegként olvasható (≥4,5:1 kontrasztú) sötét / világos változata |
 | `sop` | igen | `{ number, title, issuer, version, validUntil: 'ÉÉÉÉ-HH-NN' }`. Lejárt érvényességnél figyelmeztet az app. |
 | `steps` | igen | Lépések: `{ id, title, ref, fields: [...] }`. Egy lépésben `{ type: 'summary' }` mezőnek kell lennie. |

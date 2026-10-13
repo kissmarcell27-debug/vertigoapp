@@ -5,6 +5,6 @@
   "description": "Döntéstámogató a szédüléssel jelentkező beteg sürgősségi vizsgálatához (ÉPC-HK SBO SOP alapján)",
   "scripts": {
     "test": "node --test tests/**/*.test.js tests/*.test.js",
-    "build": "node scripts/build-standalone.js"
+    "build": "node scripts/export-icons.js && node scripts/build-standalone.js"
   }
 }

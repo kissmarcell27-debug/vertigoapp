@@ -164,8 +164,9 @@
       var exp = isExpired(p);
       var style = p.color ? ' style="--p-base:' + p.color.base + ';--p-ink:' + p.color.ink + ';--p-ink-dark:' + p.color.inkDark + '"' : '';
       return '<button type="button" class="pcard" data-open="' + esc(p.id) + '"' + style + '>' +
-        '<span class="pnum">' + esc(p.sop.number || '') + '</span>' +
+        '<span class="pnum">' + (p.icon && SBO.icons ? SBO.icons.svg(p.icon, 28) : esc(p.sop.number || '')) + '</span>' +
         '<span class="pbody"><b>' + esc(p.title) + '</b><span>' + esc(p.description || '') + '</span>' +
+        (p.sop.number ? '<em class="psop">SOP ' + esc(p.sop.number) + '</em>' : '') +
         '<small>' + esc(p.sop.issuer) + ' · ' + esc(p.sop.version) +
         (p.sop.validUntil ? ' · <span class="' + (exp ? 'expired' : 'valid') + '">' + (exp ? 'lejárt: ' : 'érvényes: ') + esc(p.sop.validUntil.replace(/-/g, '.')) + '</span>' : '') +
         '</small></span></button>';
@@ -239,7 +240,8 @@
     ['--p-base', '--p-ink', '--p-ink-dark'].forEach(function (v) { rs.removeProperty(v); });
     if (P && P.color) { rs.setProperty('--p-base', P.color.base); rs.setProperty('--p-ink', P.color.ink); rs.setProperty('--p-ink-dark', P.color.inkDark); }
     var badge = $('pbadge');
-    badge.textContent = P ? (P.sop.number || P.short.charAt(0)) : 'SBO';
+    if (P && P.icon && SBO.icons) { badge.innerHTML = SBO.icons.svg(P.icon, 24); badge.title = 'SOP ' + (P.sop.number || ''); }
+    else { badge.textContent = P ? (P.sop.number || P.short.charAt(0)) : 'SBO'; badge.removeAttribute('title'); }
     badge.className = 'pbadge' + (P && P.color ? ' proto' : '');
     if (view === 'home') renderHome();
     else if (view === 'reference') renderReference();

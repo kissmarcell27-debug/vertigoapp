@@ -36,6 +36,7 @@ for (const p of SBO.protocols) {
     for (const k of ['title', 'short']) assert.ok(p[k], `hiányzik: ${k}`);
     for (const k of ['title', 'issuer', 'version']) assert.ok(p.sop[k], `hiányzik: sop.${k}`);
     if (p.sop.validUntil) assert.match(p.sop.validUntil, /^\d{4}-\d{2}-\d{2}$/);
+    if (p.icon) assert.ok(sandbox.SBO.icons.names.includes(p.icon), `ismeretlen ikon: ${p.icon}`);
 
     const ids = p.steps.map((s) => s.id);
     assert.equal(new Set(ids).size, ids.length, 'duplikált lépés-azonosító');
