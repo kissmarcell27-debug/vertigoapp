@@ -162,7 +162,8 @@
   function renderHome() {
     var cards = SBO.protocols.map(function (p) {
       var exp = isExpired(p);
-      return '<button type="button" class="pcard" data-open="' + esc(p.id) + '">' +
+      var style = p.color ? ' style="--p-base:' + p.color.base + ';--p-ink:' + p.color.ink + ';--p-ink-dark:' + p.color.inkDark + '"' : '';
+      return '<button type="button" class="pcard" data-open="' + esc(p.id) + '"' + style + '>' +
         '<span class="pnum">' + esc(p.sop.number || '') + '</span>' +
         '<span class="pbody"><b>' + esc(p.title) + '</b><span>' + esc(p.description || '') + '</span>' +
         '<small>' + esc(p.sop.issuer) + ' · ' + esc(p.sop.version) +
@@ -233,6 +234,13 @@
     b.hidden = !(P && isExpired(P) && view !== 'home');
     if (!b.hidden) b.textContent = 'Figyelem: a forrás SOP (' + P.sop.version + ') érvényessége ' + P.sop.validUntil.replace(/-/g, '.') + '. lejárt – ellenőrizze, van-e frissebb változat.';
     document.title = P ? P.short + ' – SBO döntéstámogató' : 'SBO döntéstámogató';
+    // Eljárásrend-szín (a nyomtatott SOP fejlécszíne) CSS-változókba
+    var rs = document.documentElement.style;
+    ['--p-base', '--p-ink', '--p-ink-dark'].forEach(function (v) { rs.removeProperty(v); });
+    if (P && P.color) { rs.setProperty('--p-base', P.color.base); rs.setProperty('--p-ink', P.color.ink); rs.setProperty('--p-ink-dark', P.color.inkDark); }
+    var badge = $('pbadge');
+    badge.textContent = P ? (P.sop.number || P.short.charAt(0)) : 'SBO';
+    badge.className = 'pbadge' + (P && P.color ? ' proto' : '');
     if (view === 'home') renderHome();
     else if (view === 'reference') renderReference();
     else renderExam();

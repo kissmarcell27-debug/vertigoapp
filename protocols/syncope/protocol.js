@@ -267,6 +267,7 @@
     title: 'Syncope',
     short: 'Syncope',
     description: 'TLOC besorolás, aktív állás vizsgálat, CSM, EKG, egyértelmű diagnózis, rizikóbecslés (magas → közepes → alacsony), diszpozíció, betegtájékoztató.',
+    color: { base: '#ff6969', ink: '#bf3f3f', inkDark: '#ff9a9a' }, // a nyomtatott SOP fejlécszíne
     sop: C.SOP,
     steps: STEPS,
     stepVisible: stepVisible,

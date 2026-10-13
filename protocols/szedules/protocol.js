@@ -381,6 +381,7 @@
     title: 'Szédüléssel jelentkező beteg ellátása',
     short: 'Szédülés',
     description: 'AVS / s-EVS / t-EVS besorolás, HINTS+, pozícionális tesztek, BPPV, diszpozíció.',
+    color: { base: '#bbafd9', ink: '#6a5aa8', inkDark: '#c4b9ea' }, // a nyomtatott SOP fejlécszíne
     sop: { number: '14', title: 'Szédüléssel jelentkező beteg ellátása', issuer: C.SOP.issuer, version: C.SOP.version, validUntil: C.SOP.validUntil },
     steps: STEPS,
     stepVisible: stepVisible,

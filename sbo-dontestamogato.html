@@ -8,39 +8,47 @@
   <meta name="description" content="Döntéstámogató a sürgősségi osztály eljárásrendjei (SOP) alapján.">
   <style>
 :root {
-  --bg: #f4f5f8;
+  /* ÉPC-HK arculat: a logó kék → türkiz színátmenete (az SOP-dokumentumokból mintázva) */
+  --brand: #1e638d;
+  --brand2: #0db2c8;
+  --bg: #f2f6f9;
   --card: #ffffff;
-  --text: #1c2130;
-  --muted: #5d6475;
-  --line: #dde0e8;
-  --accent: #5b4fa3;
-  --accent-soft: #ece9f7;
+  --text: #16222e;
+  --muted: #57697a;
+  --line: #d7e0e8;
+  --accent: #1e638d;
+  --accent-soft: #e2eff6;
+  --on-accent: #ffffff;
   --danger: #b42318;
   --danger-soft: #fdecea;
   --warn: #8a5a00;
   --warn-soft: #fff4dc;
   --ok: #1d7a3e;
   --ok-soft: #e5f5ea;
-  --info: #1f5a99;
-  --info-soft: #e7f0fb;
+  --info: #1e638d;
+  --info-soft: #e7f2f8;
+  /* aktuális eljárásrend színe (a nyomtatott SOP fejlécszíne) – az engine állítja */
+  --p-ink-use: var(--p-ink, var(--accent));
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #14161c;
-    --card: #1d2029;
-    --text: #e7e9ef;
-    --muted: #a0a6b5;
-    --line: #333846;
-    --accent: #a99cf0;
-    --accent-soft: #2c2845;
+    --bg: #0f171e;
+    --card: #16212b;
+    --text: #e6edf3;
+    --muted: #9fb0bf;
+    --line: #2a3a48;
+    --accent: #6cc0e0;
+    --accent-soft: #163040;
+    --on-accent: #0b1a24;
     --danger: #ff8a80;
     --danger-soft: #3b1f1f;
     --warn: #f4c46a;
     --warn-soft: #382d16;
     --ok: #7dd99a;
     --ok-soft: #1b3324;
-    --info: #8cbcf2;
-    --info-soft: #1a2a3d;
+    --info: #8ccbe6;
+    --info-soft: #14293a;
+    --p-ink-use: var(--p-ink-dark, var(--accent));
   }
 }
 
@@ -67,7 +75,7 @@ a { color: var(--accent); }
   border: 1px solid var(--line); background: transparent; color: var(--text);
   padding: 7px 12px; border-radius: 8px; font: inherit; cursor: pointer;
 }
-.tabs button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tabs button.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .tabs button.danger { color: var(--danger); }
 
 .banner { background: var(--warn-soft); color: var(--warn); padding: 8px 16px; font-weight: 600; font-size: 14px; }
@@ -86,13 +94,13 @@ a { color: var(--accent); }
   padding: 8px 10px; border-radius: 8px; font: inherit; cursor: pointer; display: flex; gap: 8px; align-items: center;
 }
 .steps button:hover { background: var(--accent-soft); }
-.steps button.current { background: var(--accent); color: #fff; }
+.steps button.current { background: var(--accent); color: var(--on-accent); }
 .steps button.todo { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .steps .n {
   flex: none; width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center;
   font-size: 12px; background: var(--accent-soft); color: var(--accent);
 }
-.steps button.current .n { background: #fff; }
+.steps button.current .n { background: var(--on-accent); color: var(--accent); }
 
 .form h2 { margin: 0 0 12px; font-size: 20px; }
 .form h3 { margin: 18px 0 8px; font-size: 15px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
@@ -114,7 +122,7 @@ a { color: var(--accent); }
   padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; background: var(--bg);
   user-select: none;
 }
-.seg input:checked + label { background: var(--accent); border-color: var(--accent); color: #fff; }
+.seg input:checked + label { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .seg input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: 2px; }
 .seg .clear { border: 0; background: transparent; color: var(--muted); font-size: 18px; cursor: pointer; padding: 0 6px; }
 
@@ -141,7 +149,7 @@ a { color: var(--accent); }
   border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: 8px;
   padding: 9px 14px; font: inherit; cursor: pointer;
 }
-.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 .btn.block { width: 100%; margin-top: 12px; }
 
 .panel { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow: auto; }
@@ -181,7 +189,7 @@ a { color: var(--accent); }
   .cols { columns: 1; }
   .jump {
     display: block; position: fixed; right: 16px; bottom: 16px; z-index: 5; padding: 10px 14px;
-    background: var(--accent); color: #fff; border-radius: 999px; text-decoration: none; font-weight: 600;
+    background: var(--accent); color: var(--on-accent); border-radius: 999px; text-decoration: none; font-weight: 600;
     box-shadow: 0 2px 10px rgba(0, 0, 0, .25);
   }
   body:has(#exam[hidden]) .jump { display: none; }
@@ -276,13 +284,37 @@ code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
   .ref-table th, .ref-table td { padding: 4px 5px; }
 }
 
+/* ---------- Arculat: fejléc színsáv, eljárásrend-színek ---------- */
+.top { position: relative; border-bottom: 0; padding-bottom: 16px; }
+.top::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 4px;
+  background: linear-gradient(90deg, var(--brand), var(--brand2));
+}
+.brand { display: flex; align-items: center; gap: 12px; }
+.pbadge {
+  flex: none; min-width: 40px; height: 40px; padding: 0 8px; border-radius: 10px; display: grid; place-items: center;
+  font-weight: 800; font-size: 17px; color: #fff; background: linear-gradient(135deg, var(--brand), var(--brand2));
+}
+.pbadge.proto { background: var(--p-base); color: #1a1a1a; }
+.steps .n { background: color-mix(in srgb, var(--p-base, var(--accent)) 22%, transparent); color: var(--p-ink-use); }
+.steps button.current { background: var(--accent); }
+.cat { border-left: 5px solid var(--p-base, var(--accent)); }
+.cat.danger { border-left-color: var(--danger); }
+.form h2 { border-bottom: 3px solid color-mix(in srgb, var(--p-base, var(--accent)) 55%, transparent); padding-bottom: 8px; }
+.pcard { border-top: 5px solid var(--p-base, var(--accent)); }
+.pcard .pnum { background: var(--p-base, var(--accent-soft)); color: #1a1a1a; }
+.pcard:hover { border-color: var(--p-base, var(--accent)); border-top-color: var(--p-base, var(--accent)); box-shadow: 0 2px 10px rgba(30, 99, 141, .12); }
+
 </style>
 </head>
 <body>
   <header class="top">
     <div class="brand">
-      <h1 id="ptitle">SBO döntéstámogató</h1>
-      <p id="psub"></p>
+      <span id="pbadge" class="pbadge" aria-hidden="true">SBO</span>
+      <div>
+        <h1 id="ptitle">SBO döntéstámogató</h1>
+        <p id="psub"></p>
+      </div>
     </div>
     <nav class="tabs">
       <button type="button" id="viewHome">Eljárásrendek</button>
@@ -1929,6 +1961,7 @@ code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
     title: 'Szédüléssel jelentkező beteg ellátása',
     short: 'Szédülés',
     description: 'AVS / s-EVS / t-EVS besorolás, HINTS+, pozícionális tesztek, BPPV, diszpozíció.',
+    color: { base: '#bbafd9', ink: '#6a5aa8', inkDark: '#c4b9ea' }, // a nyomtatott SOP fejlécszíne
     sop: { number: '14', title: 'Szédüléssel jelentkező beteg ellátása', issuer: C.SOP.issuer, version: C.SOP.version, validUntil: C.SOP.validUntil },
     steps: STEPS,
     stepVisible: stepVisible,
@@ -2809,6 +2842,7 @@ code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
     title: 'Syncope',
     short: 'Syncope',
     description: 'TLOC besorolás, aktív állás vizsgálat, CSM, EKG, egyértelmű diagnózis, rizikóbecslés (magas → közepes → alacsony), diszpozíció, betegtájékoztató.',
+    color: { base: '#ff6969', ink: '#bf3f3f', inkDark: '#ff9a9a' }, // a nyomtatott SOP fejlécszíne
     sop: C.SOP,
     steps: STEPS,
     stepVisible: stepVisible,
@@ -3730,6 +3764,7 @@ code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
     title: 'Fejsérülés, intracranialis vérzés',
     short: 'Fejsérülés / IC vérzés',
     description: 'Fejsérültek rizikócsoportja, CT-indikáció és időzítés, antikoagulált / TAG-gátlót szedő betegek, obszerváció, aranyóra, nem traumás ICH és SAV.',
+    color: { base: '#ed7d31', ink: '#b2561a', inkDark: '#f6a66e' }, // a nyomtatott SOP fejlécszíne
     sop: C.SOP,
     steps: STEPS,
     stepVisible: stepVisible,
@@ -3924,7 +3959,8 @@ code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
   function renderHome() {
     var cards = SBO.protocols.map(function (p) {
       var exp = isExpired(p);
-      return '<button type="button" class="pcard" data-open="' + esc(p.id) + '">' +
+      var style = p.color ? ' style="--p-base:' + p.color.base + ';--p-ink:' + p.color.ink + ';--p-ink-dark:' + p.color.inkDark + '"' : '';
+      return '<button type="button" class="pcard" data-open="' + esc(p.id) + '"' + style + '>' +
         '<span class="pnum">' + esc(p.sop.number || '') + '</span>' +
         '<span class="pbody"><b>' + esc(p.title) + '</b><span>' + esc(p.description || '') + '</span>' +
         '<small>' + esc(p.sop.issuer) + ' · ' + esc(p.sop.version) +
@@ -3995,6 +4031,13 @@ code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
     b.hidden = !(P && isExpired(P) && view !== 'home');
     if (!b.hidden) b.textContent = 'Figyelem: a forrás SOP (' + P.sop.version + ') érvényessége ' + P.sop.validUntil.replace(/-/g, '.') + '. lejárt – ellenőrizze, van-e frissebb változat.';
     document.title = P ? P.short + ' – SBO döntéstámogató' : 'SBO döntéstámogató';
+    // Eljárásrend-szín (a nyomtatott SOP fejlécszíne) CSS-változókba
+    var rs = document.documentElement.style;
+    ['--p-base', '--p-ink', '--p-ink-dark'].forEach(function (v) { rs.removeProperty(v); });
+    if (P && P.color) { rs.setProperty('--p-base', P.color.base); rs.setProperty('--p-ink', P.color.ink); rs.setProperty('--p-ink-dark', P.color.inkDark); }
+    var badge = $('pbadge');
+    badge.textContent = P ? (P.sop.number || P.short.charAt(0)) : 'SBO';
+    badge.className = 'pbadge' + (P && P.color ? ' proto' : '');
     if (view === 'home') renderHome();
     else if (view === 'reference') renderReference();
     else renderExam();
