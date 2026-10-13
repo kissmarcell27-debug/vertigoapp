@@ -267,6 +267,13 @@ textarea.report.epi { width: 100%; resize: vertical; color: var(--text); font: 1
 .expired { color: var(--warn); font-weight: 600; }
 .valid { color: var(--ok); }
 code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
+.ref-table { table-layout: fixed; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .tabs { flex-wrap: wrap; width: 100%; }
+  .tabs button { padding: 6px 10px; font-size: 14px; }
+  .ref-table { font-size: 12.5px; }
+  .ref-table th, .ref-table td { padding: 4px 5px; }
+}
 
 </style>
 </head>
@@ -1944,6 +1951,1729 @@ code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
 })();
 
 </script>
+  <script>
+/*
+ * Döntési logika – „Syncope eljárásrend” (ÉPC-HK SBC SOP 5., v1.0, 2026.02.10.)
+ * Tiszta függvények; böngészőben window.SyncopeLogic, Node-ban module.exports.
+ */
+(function (root) {
+  'use strict';
+
+  var num = function (v) {
+    if (v === null || v === undefined || v === '') return null;
+    var n = Number(String(v).replace(',', '.'));
+    return isFinite(n) ? n : null;
+  };
+
+  /* ------------------------------------------------------------------ */
+  /* Aktív állás vizsgálat – SOP 4.3–4.4                                 */
+  /* OH: >20 Hgmm szisztolés vagy >10 Hgmm diasztolés esés, vagy <90 Hgmm */
+  /* szisztolés érték. POTS: >30/perc emelkedés vagy >120/perc (10 perc)  */
+  /* OH nélkül.                                                          */
+  /* ------------------------------------------------------------------ */
+  function activeStanding(s) {
+    var sup = { sys: num(s['as.supSys']), dia: num(s['as.supDia']), hr: num(s['as.supHr']) };
+    var pts = [
+      { t: '0 perc', sys: num(s['as.0Sys']), dia: num(s['as.0Dia']), hr: num(s['as.0Hr']) },
+      { t: '3 perc', sys: num(s['as.3Sys']), dia: num(s['as.3Dia']), hr: num(s['as.3Hr']) },
+      { t: '10 perc', sys: null, dia: null, hr: num(s['as.10Hr']) },
+    ];
+    var anyStanding = pts.some(function (p) { return p.sys !== null; });
+    if (sup.sys === null || !anyStanding) {
+      if (s['as.manual'] === 'pos') return { done: true, oh: true, manual: true };
+      if (s['as.manual'] === 'neg') return { done: true, oh: false, manual: true };
+      return { done: false };
+    }
+    var maxSysDrop = null, maxDiaDrop = null, minSys = null, reasons = [];
+    pts.forEach(function (p) {
+      if (p.sys !== null) {
+        var d = sup.sys - p.sys;
+        if (maxSysDrop === null || d > maxSysDrop) maxSysDrop = d;
+        if (minSys === null || p.sys < minSys) minSys = p.sys;
+        if (d > 20) reasons.push(p.t + ': szisztolés esés ' + d + ' Hgmm (>20)');
+        if (p.sys < 90) reasons.push(p.t + ': szisztolés ' + p.sys + ' Hgmm (<90)');
+      }
+      if (p.dia !== null && sup.dia !== null) {
+        var dd = sup.dia - p.dia;
+        if (maxDiaDrop === null || dd > maxDiaDrop) maxDiaDrop = dd;
+        if (dd > 10) reasons.push(p.t + ': diasztolés esés ' + dd + ' Hgmm (>10)');
+      }
+    });
+    var oh = reasons.length > 0;
+    var maxHr = null, hrRise = null;
+    pts.forEach(function (p) {
+      if (p.hr !== null) {
+        if (maxHr === null || p.hr > maxHr) maxHr = p.hr;
+        if (sup.hr !== null) { var r = p.hr - sup.hr; if (hrRise === null || r > hrRise) hrRise = r; }
+      }
+    });
+    var pots = !oh && ((hrRise !== null && hrRise > 30) || (maxHr !== null && maxHr > 120));
+    return { done: true, oh: oh, reasons: reasons, maxSysDrop: maxSysDrop, maxDiaDrop: maxDiaDrop, minSys: minSys, hrRise: hrRise, maxHr: maxHr, pots: pots };
+  }
+
+  // OH okozta syncope bizonyossága (SOP 4.4)
+  function ohCertainty(s, as) {
+    if (!as.done || !as.oh) return null;
+    var rep = s['as.reproduced'], hx = s['as.history'];
+    if (!rep || !hx) return null;
+    if (rep === 'yes') return hx === 'full' ? 'igazolt' : 'valószínű';
+    return hx === 'full' ? 'valószínű' : 'lehetséges';
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Carotis sinus masszázs – SOP 4.2                                    */
+  /* ------------------------------------------------------------------ */
+  function csm(s) {
+    var age = num(s['pt.age']);
+    var res = { indicated: age !== null && age > 40, cautions: [] };
+    if (s['csm.strokeTia']) res.cautions.push('korábbi stroke / TIA');
+    if (s['csm.stenosis']) res.cautions.push('>70%-os carotis stenosis');
+    if (s['csm.result'] === 'pos') {
+      res.positive = true;
+      res.dx = s['csm.reproduced'] === 'yes' ? (s['hx.prevSyncope'] === 'yes' ? 'CSS' : 'CSH') : 'CSH';
+    } else if (s['csm.result'] === 'neg') res.positive = false;
+    return res;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Kritérium-listák                                                     */
+  /* ------------------------------------------------------------------ */
+  // EKG – egyértelmű aritmogén syncope (4.5.2) ÉS magas kockázat (5.2)
+  var EKG_CERTAIN = {
+    'e.sinusbrady': 'Perzisztens sinus bradycardia <40/perc, ismétlődő SA-blokk vagy >3 mp-es pauza éber állapotban, terhelés nélkül',
+    'e.avb': 'Másodfokú Mobitz II vagy harmadfokú AV-blokk',
+    'e.altbbb': 'Alternáló BTSZB és JTSZB',
+    'e.vt': 'Kamrai tachycardia (tartós vagy nem tartós)',
+    'e.svt': 'Magas kamrai frekvenciájú SVT',
+    'e.pvtqt': 'Nem tartós polimorf kamrai tachycardia és rövid vagy hosszú QT',
+    'e.pm': 'Pacemaker / ICD diszfunkció pauzákkal',
+  };
+  // EKG – magas kockázat (5.2), nem egyértelmű diagnózis
+  var EKG_HIGH = {
+    'e.ischemia': 'Akut ischaemia jelei',
+    'e.slowaf': 'Lassú frekvenciájú pitvarfibrilláció (<40/perc)',
+    'e.conduction': 'Tawara-szár-blokk, intraventricularis vezetési zavar, kamrai hypertrophia, ISZB-nek megfelelő Q-hullám, cardiomyopathiára típusos EKG',
+    'e.brugada': 'I-es típusú Brugada-jel',
+    'e.longqt': 'Hosszú QT szindróma (QTc >460 ms)',
+  };
+  // Csak korábbi aritmogén syncope esetén magas kockázat (5.2)
+  var EKG_COND = {
+    'c.mobitz1': 'Mobitz I másodfokú AV-blokk és markánsan megnyúlt PR-szakaszú elsőfokú AV-blokk',
+    'c.brady': 'Aszimptomatikus, enyhe inappropriate sinus bradycardia (40–50/perc) vagy lassú PF (40–50/perc)',
+    'c.psvt': 'Paroxizmális SVT vagy PF',
+    'c.preexc': 'Preexcitált QRS-komplexusok',
+    'c.brugada': 'Atípusos Brugada-mintázat',
+    'c.arvc': 'Negatív T-hullám jobb precordialis elvezetésekben, ARVC-re utaló epsilon-hullám',
+  };
+  var HIGH = {
+    'h.newsymptom': 'Újkeletű mellkasi diszkomfort, légszomj, hasi fájdalom vagy fejfájás',
+    'h.exertion': 'Fizikai terhelés alatt vagy fekvő helyzetben jelentkező syncope',
+    'h.palp': 'Hirtelen kezdődő palpitáció, melyet közvetlenül syncope követ',
+    'h.structural': 'Anamnesztikus súlyos strukturális szív- vagy koronáriabetegség (szívelégtelenség, alacsony EF, korábbi AMI)',
+    'h.hypotension': 'A sürgősségi osztályon mással nem magyarázható hypotonia (szisztolés <90 Hgmm)',
+    'h.brady': 'Perzisztáló bradycardia (<40/perc) éber állapotban, fizikai megterhelés nélkül',
+    'h.murmur': 'Kivizsgálatlan systolés zörej',
+    'h.gib': 'Rektális vizsgálat során felmerülő GIV',
+  };
+  var HIGH_HD = {
+    'hd.noprodrome': 'megelőző tünet nélküli vagy <10 mp-es prodromával',
+    'hd.family': 'fiatalkori hirtelen szívhalál a családi anamnézisben',
+    'hd.sitting': 'ülő helyzetben jelentkező syncope',
+  };
+  var LOW = {
+    'l.prodrome': 'Prodromával induló reflex syncope',
+    'l.trigger': 'Kellemetlen látványt, hangot, szagot vagy fájdalmat követően jelentkezik',
+    'l.standing': 'Tartós állást követően, vagy zsúfolt / meleg helyen',
+    'l.meal': 'Étkezés közben vagy postprandiálisan',
+    'l.neck': 'Fej elfordítására vagy a carotis sinusra gyakorolt nyomásra (szűk ruházat, borotválkozás, tumor)',
+    'l.history': 'Strukturális szívbetegség hiánya; évekkel korábbi, a jelenlegivel megegyező jegyű alacsony kockázatú syncope',
+  };
+  var MID = {
+    'm.recurrent': 'Alacsony kockázatot mutató, de ismétlődő, az életminőséget rontó syncopék',
+    'm.shortprodrome': 'Rövid (≈5–10 mp) vagy hiányzó prodromájú reflex syncope, trauma veszélyével',
+    'm.activity': 'Magas kockázatú tevékenység (vezetés, repülés, gépi munkavégzés) közben jelentkező syncope',
+  };
+
+  function picked(s, map) { return Object.keys(map).filter(function (k) { return s[k]; }).map(function (k) { return map[k]; }); }
+
+  function certainDx(s, as) {
+    var out = [];
+    if (s['cert.vvs']) out.push({ code: 'VVS', text: 'Vasovagalis syncope (erősen valószínű)', ref: 'SOP 4.5.1' });
+    if (s['cert.situational']) out.push({ code: 'SIT', text: 'Szituációs syncope', ref: 'SOP 4.5.1' });
+    if (s['cert.orthostatic']) {
+      if (as.done && as.oh) out.push({ code: 'OH', text: 'Ortosztatikus syncope', ref: 'SOP 4.5.1' });
+    }
+    var ekg = picked(s, EKG_CERTAIN);
+    if (ekg.length) out.push({ code: 'ARR', text: 'Aritmogén syncope (' + ekg.join('; ') + ')', ref: 'SOP 4.5.2' });
+    if (s['cert.ischemia']) out.push({ code: 'ISCH', text: 'Ischaemiás szívbetegséggel összefüggő syncope (igazolt akut myocardialis ischaemia)', ref: 'SOP 4.5.2' });
+    if (s['cert.structural']) out.push({ code: 'STRUCT', text: 'Strukturális szívbetegség okozta syncope' + (s['cert.structural.text'] ? ' (' + s['cert.structural.text'] + ')' : ''), ref: 'SOP 4.5.2' });
+    return out;
+  }
+
+  function riskLevel(s, as) {
+    var high = picked(s, HIGH).concat(picked(s, EKG_CERTAIN), picked(s, EKG_HIGH));
+    if (s['hd.present']) {
+      var hd = picked(s, HIGH_HD);
+      if (hd.length) high.push('Szívbetegséghez / kóros EKG-hoz társuló syncope: ' + hd.join(', '));
+    }
+    if (s['hx.arrSync']) high = high.concat(picked(s, EKG_COND).map(function (x) { return x + ' (korábbi aritmogén syncope mellett)'; }));
+    if (s['cert.ischemia']) high.push('Igazolt akut myocardialis ischaemia');
+    if (s['cert.structural']) high.push('Bizonyított strukturális szívbetegség');
+    var mid = picked(s, MID);
+    var low = picked(s, LOW);
+    var level = null;
+    if (high.length) level = 'high';
+    else if (s['h.none']) {
+      if (mid.length) level = 'intermediate';
+      else if (low.length && s['l.physical'] === 'yes' && s['l.ekg'] === 'yes') level = 'low';
+      else level = 'intermediate';
+    }
+    return { level: level, high: high, mid: mid, low: low };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Fő kiértékelés – 4. ábra                                             */
+  /* ------------------------------------------------------------------ */
+  function evaluate(s) {
+    s = s || {};
+    var r = { category: null, stage: 'start', path: [], alerts: [], workingDx: [], actions: [], disposition: [], differentials: [] };
+    var add = function (list, text, ref) { r[list].push({ text: text, ref: ref }); };
+    var alert = function (level, text, ref) { r.alerts.push({ level: level, text: text, ref: ref }); };
+    r.as = activeStanding(s);
+    r.ohCertainty = ohCertainty(s, r.as);
+    r.csm = csm(s);
+
+    if (!s.unstable) { r.stage = 'start'; return r; }
+    if (s.unstable === 'yes') {
+      r.category = 'UNSTABLE';
+      r.path.push('Cardiorespiratorikusan instabil');
+      alert('danger', 'Kardiorespiratorikusan instabil beteg: ellátás ABCDE szerint – az SOP ezt nem részletezi.', 'SOP 4.1.4');
+      r.stage = 'done';
+      return r;
+    }
+    r.path.push('Cardiorespiratorikusan stabil');
+    if (s.presyncope) alert('info', 'Presyncope: a prognózis hasonló a syncopéhoz – ugyanolyan alapossággal kell vizsgálni és rizikóstratifikálni.', 'SOP 4.1.3');
+
+    if (!s.tloc) { r.stage = 'start'; return r; }
+    if (s.tloc === 'trauma') {
+      r.category = 'OTHER';
+      r.path.push('Fejtrauma okozta átmeneti eszméletvesztés');
+      alert('warn', 'A trauma okozta eszméletvesztés nem ennek az eljárásrendnek a tárgya – a fejsérülés eljárásrend szerint vizsgálja.', 'SOP 1.');
+      add('actions', 'Fejsérülés eljárásrend (SOP 17.) szerinti ellátás.', 'SOP 1.');
+      r.stage = 'done';
+      return r;
+    }
+    if (s.tloc === 'not_tloc') {
+      r.category = 'OTHER';
+      r.path.push('Nem átmeneti eszméletvesztés');
+      add('actions', 'A tartós tudatzavar okának kivizsgálása – nem a syncope eljárásrend tárgya.', '4. ábra');
+      r.stage = 'done';
+      return r;
+    }
+    if (s.tloc === 'tloc_other') {
+      r.category = 'OTHER';
+      r.path.push('Átmeneti eszméletvesztés, nem syncope');
+      add('actions', 'A valószínű ok (epilepsziás roham, pszichogén pseudosyncope / PNES, ritka ok: subclavian steal, vertebrobasilaris TIA, SAV) szerinti kivizsgálás.', 'SOP 2., 1. ábra');
+      r.stage = 'done';
+      return r;
+    }
+    // syncope
+    if (s.leading === 'no') {
+      r.category = 'OTHER';
+      r.path.push('Syncope, de nem ez a vezető panasz');
+      add('actions', 'A vezető panasz kivizsgálása és az alapbetegség kezelése (pl. nehézlégzéssel, mellkasi fájdalommal és syncopéval jelentkező pulmonális embólia).', 'SOP 4.1.5');
+      r.stage = 'done';
+      return r;
+    }
+    if (!s.leading) { r.stage = 'start'; return r; }
+    r.path.push('Syncope mint vezető panasz');
+
+    // Kezdeti vizsgálatok
+    add('actions', 'Kezdeti vizsgálatok: alapos auto- és heteroanamnézis, fizikális vizsgálat, fekvő és álló vérnyomás folyamatos EKG-monitorozás mellett (aktív állás), 12 elvezetéses EKG.', 'SOP 4.1.1, 4. ábra');
+    if (!r.as.done) alert('info', 'Aktív állás vizsgálat: vérnyomás és pulzus fekve, 0 perces és 3 perces állás után.', 'SOP 4.3');
+    if (r.as.done && r.as.oh) alert('warn', 'Az aktív állás vizsgálat ortosztatikus hypotoniát mutat' + (r.as.reasons ? ': ' + r.as.reasons.join('; ') : '') + (r.ohCertainty ? ' – OH okozta syncope ' + r.ohCertainty + '.' : '.'), 'SOP 4.4');
+    if (r.as.done && r.as.pots) alert('info', 'OH nélküli ortosztatikus pulzusemelkedés (>30/perc vagy >120/perc): POTS megfontolandó, ha a panaszokat reprodukálja.', 'SOP 4.4');
+    if (r.csm.indicated && s['csm.result'] === undefined) {
+      add('actions', 'Carotis sinus masszázs (40 év felett, feltételezett reflex mechanizmusú, ismeretlen etiológiájú syncope) – fekve és állva.' + (r.csm.cautions.length ? ' Óvatosan / elhagyható: ' + r.csm.cautions.join(', ') + '.' : ''), 'SOP 4.2');
+    }
+    if (r.csm.positive) {
+      alert('warn', r.csm.dx === 'CSS' ? 'Pozitív CSM, reprodukált tünetekkel és korábbi syncopéval: carotis sinus szindróma (CSS).' : 'Pozitív CSM: carotis sinus hyperaesthesia (CSH) – tisztázatlan syncopéban nem specifikus lelet.', 'SOP 4.2');
+    }
+    if (s['x.arrhythmia']) add('actions', 'Azonnali EKG-monitorozás (aritmogén syncope gyanúja).', 'SOP 4.1.2');
+    if (s['x.structural']) add('actions', 'Echokardiográfia (ismert vagy felmerülő strukturális szívbetegség, kardiovaszkuláris etiológia).', 'SOP 4.1.2');
+    if (s['x.lab']) add('actions', 'Labor a klinikum függvényében (troponin ischaemiás szívbetegség, D-dimer PE gyanújánál, vérgáz hypoxiánál).', 'SOP 4.1.2');
+
+    var cert = certainDx(s, r.as);
+    r.certain = cert;
+    if (s['cert.orthostatic'] && !(r.as.done && r.as.oh)) alert('warn', 'Ortosztatikus syncope csak akkor igazolható, ha jelentős ortosztatikus hypotonia ki is mutatható – töltse ki az aktív állás vizsgálatot.', 'SOP 4.5.1');
+    cert.forEach(function (d) { r.workingDx.push({ text: d.text, ref: d.ref }); });
+    if (r.csm.dx === 'CSS') r.workingDx.push({ text: 'Carotis sinus szindróma', ref: 'SOP 4.2' });
+    if (cert.length) {
+      r.path.push('Egyértelmű vagy erősen valószínű diagnózis');
+      add('actions', 'Egyértelmű / erősen valószínű diagnózis: további vizsgálat nem szükséges, a kezelés megkezdhető.', 'SOP 4.5, 4. ábra');
+    } else {
+      // Felvethető diagnózisok (4.6)
+      if (s['sug.reflex']) r.workingDx.push({ text: 'Reflex syncope felvethető', ref: 'SOP 4.6.1' });
+      if (s['sug.orth']) r.workingDx.push({ text: 'Ortosztatikus syncope felvethető', ref: 'SOP 4.6.2' });
+      if (s['sug.cardiac']) r.workingDx.push({ text: 'Kardiogén syncope felvethető', ref: 'SOP 4.6.3' });
+    }
+
+    // Rizikóbecslés
+    var risk = riskLevel(s, r.as);
+    r.risk = risk;
+    var cardiac = cert.some(function (d) { return ['ARR', 'ISCH', 'STRUCT'].indexOf(d.code) >= 0; });
+    var benignCertain = cert.length && !cardiac;
+    if (!risk.level) {
+      r.stage = cert.length ? 'risk' : (s.dxReviewed ? 'risk' : 'dx');
+      if (benignCertain) alert('info', 'Reflex / ortosztatikus syncope csak akkor valószínűsíthető, ha kardiogén syncopéra utaló tényező nincs – nézze át a magas kockázati jegyeket.', 'SOP 4.5.1');
+      return r;
+    }
+    var label = { low: 'Alacsony', intermediate: 'Közepes', high: 'Magas' }[risk.level];
+    r.category = { low: 'LOW', intermediate: 'INTERMEDIATE', high: 'HIGH' }[risk.level];
+    r.path.push(label + ' kockázat');
+
+    if (risk.level === 'low') {
+      if (!r.workingDx.length) r.workingDx.push({ text: 'Valószínűleg reflex, szituációs vagy ortosztatikus syncope', ref: 'SOP 6.1' });
+      add('disposition', 'Alacsony kockázat: további sürgősségi kivizsgálás nem szükséges, a sürgősségi osztályról emittálható (egyéb kórképek, sérülések, szociális okok miatt felvétel lehet indokolt).', 'SOP 6.1, 4. ábra');
+      add('actions', 'Betegtájékoztatás, megnyugtatás, betegoktatás, életmód-változtatás (provokáló tényezők kerülése, adekvát folyadék- és sóbevitel hypertonia hiányában), ellenmanőverek betanítása.', 'SOP 6.1, 7.');
+      if (s['rf.present']) add('actions', 'Rizikófaktorok miatt járóbeteg-ellátásba (kardiológiai szakrendelés) irányítás.', 'SOP 6.1');
+    } else if (risk.level === 'intermediate') {
+      add('disposition', 'Közepes kockázat: hazabocsátás a primer vizsgálatok után nem javasolt; SBO-n monitorozás 12 órán át. Magas kockázatú, felvételt igénylő ok igazolódása esetén osztályos felvétel, ennek hiányában korai szakirányú járóbeteg-kivizsgálás.', 'SOP 6.2, 4. ábra');
+      if (s['obs.result'] === 'high') add('disposition', 'Az obszerváció alatt magas kockázatú ok igazolódott: osztályos felvétel a diagnózis és kezelés céljából.', 'SOP 6.2');
+      else if (s['obs.result'] === 'clear') add('disposition', 'Az obszerváció alatt magas kockázatra utaló eltérés nem igazolódott: korai szakirányú járóbeteg-kivizsgálásra irányítás.', 'SOP 6.2');
+    } else {
+      alert('danger', 'Magas kockázat: ' + risk.high.join('; ') + '.', 'SOP 5.2');
+      add('disposition', 'Magas kockázat: monitorozás resuscitatiós készenlét mellett (jellemzően 6 óráig az SBO-n, legfeljebb 24 óráig kórházban), korai, gyors és intenzív kivizsgálás, sürgős kezelés, szükség esetén osztályos felvétel.', 'SOP 6.3, 4. ábra');
+      var adm = picked(s, ADMIT);
+      var obs = picked(s, OBSERVE);
+      if (adm.length) add('disposition', 'Osztályos felvétel javasolt: ' + adm.join('; ') + '.', 'SOP 6.4.2');
+      else if (obs.length) add('disposition', 'SBO fektetős obszerváció, monitorozás javasolt: ' + obs.join('; ') + '.', 'SOP 6.4.1');
+    }
+    if (risk.level !== 'low' && risk.low.length && !risk.high.length && !risk.mid.length && (s['l.physical'] !== 'yes' || s['l.ekg'] !== 'yes')) {
+      alert('info', 'Alacsony kockázathoz negatív fizikális vizsgálat és eltérés nélküli EKG is szükséges.', 'SOP 5.1');
+    }
+    alert('info', 'Kockázatbecslő pontrendszerek (CSRS, EGSYS, San Francisco, OESIL, ROSE) önmagukban nem javasoltak a rizikóbecslésre.', 'SOP 5.4');
+    r.stage = 'done';
+    return r;
+  }
+
+  var OBSERVE = {
+    'o.structural': 'stabil, ismert strukturális szívbetegség',
+    'o.chronic': 'súlyos krónikus betegség',
+    'o.position': 'syncope fekve vagy ülve, terhelés során',
+    'o.palp': 'palpitáció a syncope alatt',
+    'o.brady': 'inadekvát sinus bradycardia vagy SA-blokk',
+    'o.device': 'beültethető eszköz diszfunkciójának gyanúja',
+    'o.preexc': 'preexcitált QRS',
+    'o.svt': 'SVT vagy paroxizmális PF',
+    'o.inherited': 'öröklött aritmia szindrómára / ARVC-re típusos EKG',
+  };
+  var ADMIT = {
+    'a.comorb': 'osztályos ellátást igénylő társbetegség',
+    'a.injury': 'a syncope során keletkezett sérülés',
+    'a.workup': 'sürgős kivizsgálás / kezelés, amely más módon nem szervezhető meg (EKG-monitor, echo, terheléses, EPS, angiográfia, eszközdiszfunkció)',
+    'a.treatment': 'a kezeléshez osztályos felvétel szükséges',
+    'a.recurrent': 'recurráló reflex syncope nagyon rövid vagy hiányzó prodromával (ILR)',
+    'a.cardioinhib': 'kardioinhibitoros túlsúlyú reflex syncope (pacing / cardioneuroabláció)',
+    'a.oh': 'OH, amelynél megfelelő volumenpótlás után is pozitív az aktív állás vizsgálat',
+  };
+
+  var api = {
+    evaluate: evaluate, activeStanding: activeStanding, ohCertainty: ohCertainty, csm: csm, riskLevel: riskLevel, certainDx: certainDx,
+    EKG_CERTAIN: EKG_CERTAIN, EKG_HIGH: EKG_HIGH, EKG_COND: EKG_COND, HIGH: HIGH, HIGH_HD: HIGH_HD, LOW: LOW, MID: MID, OBSERVE: OBSERVE, ADMIT: ADMIT,
+  };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.SyncopeLogic = api;
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+  <script>
+/*
+ * Referencia-tartalom – „Syncope eljárásrend” (ÉPC-HK SBC SOP 5., v1.0), tömörítve.
+ */
+(function (root) {
+  'use strict';
+
+  var SOP = { number: '5', title: 'Syncope eljárásrend', issuer: 'ÉPC-HK SBC', version: 'v1.0, 2026.02.10.', validUntil: '2027-01-01' };
+
+  var COUNTER = [
+    { name: 'Lábkeresztezés és izomfeszítés', how: 'keresztezze a lábait, feszítse meg erősen a láb-, has- és farizmait, és tartsa, amíg bírja vagy amíg a tünetek elmúlnak' },
+    { name: 'Kézszorítás', how: 'szorítson össze egy gumilabdát vagy puha tárgyat a lehető legerősebben, amíg jobban nem lesz' },
+    { name: 'Karfeszítés', how: 'kulcsolja össze a kezeit, és húzza a karjait egymással szemben erősen megfeszítve, amíg bírja vagy amíg a rosszullét elmúlik' },
+  ];
+
+  var REFERENCE = [
+    {
+      id: 'tloc', title: 'Átmeneti eszméletvesztés (TLOC), elkülönítés (2.)',
+      html:
+        '<p><b>Syncope:</b> hirtelen, rövid, átmeneti eszméletvesztés, hátterében az agy hypoperfúziója; spontán, tiszta tudattal tér magához. Amíg a rosszullét természete nem tisztázott, érdemes a tágabb TLOC megnevezést használni.</p>' +
+        '<p><b>TLOC típusai:</b> nem traumás – syncope (reflex, ortosztatikus, kardiális), epilepsziás roham (tónusos, klónusos, tónusos-klónusos, atóniás), pszichogén (PPS, PNES), ritka okok (subclavian steal, vertebrobasilaris TIA, SAV); ill. fejtrauma okozta TLOC (külön eljárásrend).</p>' +
+        '<table class="ref-table"><thead><tr><th>Jellemző</th><th>Syncope</th><th>Epilepsziás roham</th></tr></thead><tbody>' +
+        '<tr><td>Trigger</td><td>nagyon gyakori</td><td>ritka (villanó fények)</td></tr>' +
+        '<tr><td>Prodroma</td><td>gyakran presyncope</td><td>ismétlődő, betegspecifikus aura</td></tr>' +
+        '<tr><td>Myoclonus</td><td>&lt;10 mp, irreguláris, aszinkron, aszimmetrikus; az eszméletvesztés után indul</td><td>20–100 szinkron, szimmetrikus vagy féloldali; az eszméletvesztéssel együtt indul; automatizmusok (rágás, csámcsogás)</td></tr>' +
+        '<tr><td>Nyelvharapás</td><td>ritka, inkább a nyelvcsúcs</td><td>nyelvszél (ritkán kétoldali)</td></tr>' +
+        '<tr><td>Tudat visszanyerése</td><td>10–30 mp</td><td>percek</td></tr>' +
+        '<tr><td>Utána</td><td>&lt;10 mp zavartság, majd teljes éberség</td><td>memóriadeficit, dezorientáltság percekig</td></tr>' +
+        '<tr><td colspan="3"><i>Limitált értékű jegyek:</i> inkontinencia (előfordul / gyakori), nyitott szem (gyakran / szinte mindig), roham utáni fáradtság (gyakori / nagyon gyakori), a fejet érintő cianózis (ritka / gyakori).</td></tr>' +
+        '</tbody></table>' +
+        '<p><b>Tévesen syncope-nak diagnosztizálható:</b> generalizált és komplex parciális rohamok, absence; PPS; kataplexia; ICH / SAV (fokozatos tudatcsökkenés, fejfájás, neurológiai jelek); vertebrobasilaris TIA (fokális jelek); subclavian steal; elesések; szívmegállás.</p>',
+    },
+    {
+      id: 'types', title: 'A syncope típusai (3.)',
+      html:
+        '<table class="ref-table"><thead><tr><th>Reflex</th><th>Ortosztatikus</th><th>Kardiális</th></tr></thead><tbody><tr>' +
+        '<td><b>Vasovagalis:</b> ortosztatikus (állás, ülés), emocionális (félelem, fájdalom, haemofóbia). <b>Szituációs:</b> mikció, GI stimulus (nyelés, székelés), köhögés, tüsszentés, terhelés utáni, nevetés, fúvós hangszer. <b>Carotis sinus szindróma.</b> <b>Nem klasszikus</b> (prodroma / kiváltó ok nélkül).</td>' +
+        '<td><b>Gyógyszer:</b> vazodilatátorok, diuretikumok, fenotiazinok, antidepresszánsok. <b>Folyadékhiány:</b> vérzés, hasmenés, hányás. <b>Neurogén OH:</b> diabeteses autonóm neuropathia, gerincvelő-sérülés, polyneuropathiák, veseelégtelenség, Parkinson-kór, MSA, Lewy-testes demencia.</td>' +
+        '<td><b>Aritmogén:</b> bradycardia (sinuscsomó-diszfunkció, brady-tachy, AV-vezetési zavar), tachycardia (SVT, kamrai). <b>Strukturális:</b> aortastenosis, AMI, HCM, szívtumor, pericardium/tamponád, műbillentyű-diszfunkció. <b>Kardiopulmonális:</b> PE, aortadisszekció, pulmonális hypertonia.</td>' +
+        '</tr></tbody></table><p>Leggyakoribb a vasovagalis, majd az ortosztatikus és az aritmogén syncope.</p>',
+    },
+    {
+      id: 'tests', title: 'Diagnosztika: CSM, aktív állás, OH (4.1–4.4)',
+      html:
+        '<p><b>Primer vizsgálat:</b> alapos auto- és heteroanamnézis, fizikális vizsgálat, fekvő és álló vérnyomás folyamatos EKG-monitor mellett, 12 elvezetéses EKG. <b>További:</b> azonnali monitor aritmogén gyanúnál; echo strukturális szívbetegségnél; CSM 40 év felett; labor a klinikum szerint (troponin, D-dimer, vérgáz).</p>' +
+        '<p><b>Carotis sinus masszázs:</b> 40 év feletti, feltételezett reflex mechanizmusú, ismeretlen etiológiájú syncopéban; fekve és állva. Pozitív: >3 mp-es kamrai pauza és/vagy >50 Hgmm szisztolés esés, a tünetek reprodukálódnak. Korábbi syncope mellett CSS, anélkül CSH (idősek 40%-ában jelen lehet, nem specifikus). Korábbi stroke/TIA, >70%-os carotis stenosis esetén óvatosan, magas kockázatnál elhagyható.</p>' +
+        '<p><b>Aktív állás:</b> RR és pulzus fekve, 0 perces, majd 3 perces állás után; rövid ingadozás gyanújánál folyamatos monitorozás.</p>' +
+        '<p><b>OH kritérium:</b> >20 Hgmm szisztolés vagy >10 Hgmm diasztolés esés, vagy <90 Hgmm szisztolés érték. <i>Igazolt</i> OH-syncope: a panaszok a vizsgálat alatt jelentkeznek. <i>Valószínű:</i> tünetmentes a vizsgálatkor, de az anamnézis OH-nak megfelel; vagy reprodukálható, de az anamnézis nem mindenben utal OH-ra. <i>Lehetséges:</i> tünetmentes, és az anamnézis kevésbé felel meg. <b>POTS:</b> OH nélküli >30/perc emelkedés vagy >120/perc (10 perc állás), a panaszokat reprodukálja.</p>' +
+        '<table class="ref-table"><thead><tr><th>Ortosztatikus intolerancia</th><th>Idő</th><th>Jellemző</th></tr></thead><tbody>' +
+        '<tr><td>Kezdeti OH</td><td>0–15 mp</td><td>fiatal, aszténiás; idős; alfa-blokkoló</td></tr>' +
+        '<tr><td>Klasszikus OH</td><td>&lt;3 perc</td><td>elesett idősek; vazoaktív szerek, diuretikum; hypovolaemia; autonóm zavar</td></tr>' +
+        '<tr><td>Késői OH (± reflex syncope)</td><td>&gt;3 perc</td><td>elesett idősek; kezdődő autonóm zavar; gyógyszer; társbetegségek</td></tr>' +
+        '<tr><td>Ortosztatikus VVS</td><td>hosszabb állás</td><td>női nem; krónikus ortosztatikus intolerancia</td></tr>' +
+        '<tr><td>POTS</td><td>&lt;10 perc, kóros frekvencia</td><td>fiatal nők; lezajlott fertőzés; trauma; hipermobilitás</td></tr>' +
+        '</tbody></table>',
+    },
+    {
+      id: 'dx', title: 'Egyértelmű és felvethető diagnózisok (4.5–4.6)',
+      html:
+        '<p><b>Vasovagalis (erősen valószínű):</b> fájdalom, félelem vagy állás váltotta ki, típusos progresszív prodroma (sápadtság, verejtékezés, hányinger). <b>Szituációs (igazolható):</b> mikció, nyelés, székelés, köhögés, tüsszentés, terhelés, nevetés, fúvós hangszer. <b>Ortosztatikus (igazolható):</b> állás közben, egyidejűleg kimutatható jelentős OH. Ezek hiányában reflex/ortosztatikus syncope valószínűsíthető, ha a jegyek jelen vannak és kardiogén tényező nincs.</p>' +
+        '<p><b>Aritmogén (bizonyítható):</b> perzisztens sinus bradycardia <40/perc vagy >3 mp pauza ébren, terhelés nélkül; Mobitz II / III. fokú AV-blokk; alternáló BTSZB és JTSZB; VT vagy gyors SVT; nem tartós polimorf VT és rövid/hosszú QT; PM/ICD diszfunkció pauzákkal. <b>Ischaemiás:</b> igazolt akut myocardialis ischaemia mellett. <b>Strukturális:</b> súlyos AS, pitvari myxoma, bal pitvari gömbthrombus, PE, akut aortadisszekció.</p>' +
+        '<p><b>Reflex syncopéra utal:</b> korábbi syncope (gyakran 40 év előtt); kellemetlen látvány/hang/szag/fájdalom; tartós állás; étkezés; zsúfolt/meleg hely; autonóm prodroma; fejfordítás / carotis-nyomás; szívbetegség hiánya. <b>Ortosztatikusra:</b> állás alatt/után; tartós állás; terhelést követő állás; postprandiális hypotonia; autonóm neuropathia / parkinsonismus; időben egybeeső gyógyszermódosítás. <b>Kardiogénre:</b> terhelés alatt vagy fekve; hirtelen palpitáció, majd syncope; fiatalkori hirtelen szívhalál a családban; strukturális / koszorúér-betegség; aritmogén EKG-eltérések (tri-/bifascicularis blokk, QRS >0,12 s, Mobitz I + megnyúlt PR, inappropriate bradycardia 40–50/perc, NSVT, rövid/hosszú QT, korai repolarizáció, Brugada I, negatív T jobb precordialisan / epsilon, preexcitáció, HCM-re típusos LVH).</p>',
+    },
+    {
+      id: 'risk', title: 'Rizikóbecslés és diszpozíció (5–6.)',
+      html:
+        '<p><b>Alacsony:</b> prodromával induló reflex syncope; kellemetlen inger; tartós állás / zsúfolt, meleg hely; étkezés / postprandiális; fejfordítás / carotis-nyomás; strukturális szívbetegség hiánya, évekkel korábbi hasonló syncope; negatív fizikális vizsgálat; EKG eltérés nélkül. → További sürgősségi kivizsgálás nem kell, emittálható; tájékoztatás, életmód; rizikófaktoroknál kardiológiai szakrendelés.</p>' +
+        '<p><b>Magas:</b> újkeletű mellkasi diszkomfort, légszomj, hasi fájdalom, fejfájás; terhelés alatt / fekve; hirtelen palpitáció, majd syncope; szívbetegséghez / kóros EKG-hoz társulva prodroma nélkül vagy <10 mp prodromával, fiatalkori hirtelen szívhalál a családban, ülve jelentkező syncope; súlyos strukturális / koronáriabetegség; mással nem magyarázható hypotonia (<90); perzisztáló bradycardia <40; kivizsgálatlan systolés zörej; GIV; EKG: akut ischaemia, Mobitz II/III, lassú PF <40, sinus bradycardia <40 / SA-blokk / >3 mp pauza, Tawara-szár-blokk, IV vezetési zavar, kamrai hypertrophia, Q-hullám, cardiomyopathia, VT, PM/ICD diszfunkció, Brugada I, QTc >460 ms; korábbi aritmogén syncope mellett további EKG-eltérések. → Monitorozás resuscitatiós készenlétben (jellemzően 6 óra SBO, max. 24 óra kórház), gyors kivizsgálás, szükség esetén felvétel.</p>' +
+        '<p><b>Közepes:</b> sem alacsony, sem magas; ismétlődő, életminőséget rontó alacsony kockázatú syncopék; rövid/hiányzó prodromájú reflex syncope trauma veszélyével; magas kockázatú tevékenység közben. → Nem bocsátható haza a primer vizsgálatok után; 12 órás SBO-monitorozás; magas kockázatú ok esetén felvétel, egyébként korai szakirányú járóbeteg-kivizsgálás.</p>' +
+        '<p><b>Pontrendszerek</b> (CSRS, EGSYS, San Francisco, OESIL, ROSE) önmagukban nem javasoltak.</p>' +
+        '<p><b>Fektetős obszerváció (magas kockázat):</b> stabil, ismert strukturális szívbetegség; súlyos krónikus betegség; syncope fekve/ülve, terhelés során; palpitáció a syncope alatt; inadekvát sinus bradycardia / SA-blokk; eszközdiszfunkció gyanúja; preexcitáció; SVT / paroxizmális PF; öröklött aritmia szindróma / ARVC EKG. <b>Osztályos felvétel:</b> osztályos ellátást igénylő társbetegség; a syncope során keletkezett sérülés; más módon nem szervezhető sürgős kivizsgálás / kezelés; recurráló reflex syncope nagyon rövid / hiányzó prodromával (ILR); kardioinhibitoros reflex syncope; volumenpótlás után is pozitív aktív állás.</p>' +
+        '<p><b>Obszerváció után:</b> a monitorozás időtartama a súlyosság és a várható recidíva szerint; ha ICD/PM-indikáció egyértelmű, monitorozás nem kell; aritmia hiányában a presyncope nem egyenértékű a syncopéval, de ha alatta szignifikáns aritmia rögzül, diagnosztikus; syncope alatt detektált aritmia hiánya kizárja az aritmogén syncopét.</p>' +
+        '<p><b>Kezelés:</b> súlyos/gyakori reflex syncope alacsony vérnyomás fenotípussal vagy hipotonizáló gyógyszerrel → szakirányú kivizsgálás. Esésre hajlamosaknál ACE-gátló, ARB, Ca-csatorna-blokkoló előnyben a diuretikummal és béta-blokkolóval szemben. Hypertonia hiányában 2–3 l folyadék és 10 g só naponta.</p>',
+    },
+    {
+      id: 'leaflet', title: 'Betegtájékoztató – reflex syncope (7.)',
+      html:
+        '<p>A syncope (ájulás) rövid, általában 1–2 perces eszméletvesztés, oka az agy átmeneti vérellátás-csökkenése. Leggyakoribb formája a vazovagális syncope; az emberek negyede élete során legalább egyszer átéli.</p>' +
+        '<p><b>Ha ájulásérzése van:</b> a legjobb lefeküdni és a lábait megemelni; ha erre nincs lehetőség, üljön le, vagy alkalmazzon ellenmanővert. Gyakori ájulásnál bőséges folyadékfogyasztás (kb. 2 liter) és sóban gazdagabb étrend javasolt (kivéve, ha orvosi okból sómegszorítás szükséges).</p>' +
+        '<p><b>Ellenmanőverek</b> (szédülés, gyengeség, homályos látás, verejtékezés, „mindjárt elájulok” érzés esetén azonnal):</p><ul>' +
+        COUNTER.map(function (c) { return '<li><b>' + c.name + ':</b> ' + c.how + '.</li>'; }).join('') + '</ul>',
+    },
+    {
+      id: 'sources', title: 'Források',
+      html: '<ul><li>ÉPC-HK SBC: Syncope eljárásrend, SOP 5., v1.0 (2026.02.10.) – az app döntési fája ezen alapul.</li>' +
+        '<li>Az SOP irodalma: ESC 2018 Syncope Guideline; Wieling W et al. J Intern Med 2013;273:345–358 (carotis sinus hyperaesthesia).</li>' +
+        '<li>Az OH-kritériumok itt az SOP szerint szigorú egyenlőtlenséggel (>20 / >10 Hgmm) és a <90 Hgmm abszolút értékkel értékelődnek – ez eltér a szédülés-modulban használt (≥20 / ≥10) konszenzus-definíciótól.</li></ul>',
+    },
+  ];
+
+  var api = { SOP: SOP, REFERENCE: REFERENCE, COUNTER: COUNTER };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.SyncopeContent = api;
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+  <script>
+/*
+ * Ambuláns lapba illeszthető szövegrészek – syncope.
+ * Elv: csak a megadott adatokból állít; „negál” csak kifejezett nemleges válasznál; hiány helyén „___”.
+ */
+(function (root) {
+  'use strict';
+
+  var SBO = root.SBO || (typeof require === 'function' ? require('../../js/core/registry.js') : null);
+  var C = root.SyncopeContent || (typeof require === 'function' ? require('./content.js') : null);
+  var T = SBO.text;
+  var B = T.BLANK;
+
+  var POS = { standing: 'állás közben', sitting: 'ülő helyzetben', supine: 'fekvő helyzetben', exertion: 'fizikai terhelés alatt' };
+  var PRO = { typical: 'típusos prodroma (sápadtság, verejtékezés, hányinger) előzte meg', short: 'rövid (<10 mp) prodroma előzte meg', none: 'előzetes tünet nélkül jelentkezett' };
+
+  function yn(s, k, yesTxt, noTxt) { return s[k] === 'yes' ? yesTxt : s[k] === 'no' ? noTxt : null; }
+
+  function complaint(s) {
+    var t = [];
+    t.push('Eszméletvesztés miatt jelentkezett' + (T.val(s, 'syn.when') ? ', ' + T.val(s, 'syn.when') : '') + '.');
+    if (s.presyncope) t.push('Eszméletvesztés nem történt, presyncopés panaszokkal érkezett.');
+    var c = [];
+    if (s['syn.position']) c.push('A rosszullét ' + POS[s['syn.position']] + ' jelentkezett');
+    if (T.val(s, 'syn.trigger')) c.push('kiváltó tényező: ' + T.val(s, 'syn.trigger'));
+    if (c.length) t.push(c.join(', ') + '.');
+    if (s['syn.prodrome']) t.push(T.cap(PRO[s['syn.prodrome']]) + '.');
+    if (T.val(s, 'syn.duration')) t.push('Az eszméletvesztés időtartama: ' + T.val(s, 'syn.duration') + '.');
+    if (T.val(s, 'syn.recovery')) t.push('Magához térés: ' + T.val(s, 'syn.recovery') + '.');
+    var w = yn(s, 'syn.witness', 'Heteroanamnézis (szemtanú) elérhető.', 'Szemtanú nem volt.');
+    if (w) t.push(w);
+    [['syn.palp', 'Palpitációt jelez.', 'Palpitációt negál.'], ['syn.chest', 'Mellkasi fájdalmat jelez.', 'Mellkasi fájdalmat negál.'],
+      ['syn.dyspnea', 'Nehézlégzést jelez.', 'Nehézlégzést negál.'], ['syn.injury', 'A rosszullét során sérülés érte.', 'Sérülés nem érte.'],
+      ['syn.tongue', 'Nyelvharapás történt.', 'Nyelvharapás nem történt.'], ['syn.incont', 'Inkontinencia volt.', 'Inkontinencia nem volt.'],
+      ['hx.prevSyncope', 'Korábban is volt eszméletvesztése.', 'Korábban eszméletvesztése nem volt.']].forEach(function (x) {
+      var v = yn(s, x[0], x[1], x[2]); if (v) t.push(v);
+    });
+    if (s['hd.family']) t.push('Családi anamnézisében fiatalkori hirtelen szívhalál szerepel.');
+    if (s['h.structural']) t.push('Anamnézisében súlyos strukturális szív- vagy koronáriabetegség szerepel.');
+    if (T.val(s, 'syn.drugs')) t.push('Gyógyszerei / gyógyszermódosítás: ' + T.val(s, 'syn.drugs') + '.');
+    return t.join(' ');
+  }
+
+  function status(s, r) {
+    var L = [T.vitalsLine(s)];
+    var a = r.as;
+    if (a && a.done) {
+      if (a.manual) L.push('Aktív állás vizsgálat: ' + (a.oh ? 'pozitív.' : 'negatív.'));
+      else {
+        var p = function (sys, dia, hr) { return (T.val(s, sys) || B) + '/' + (T.val(s, dia) || B) + ' Hgmm' + (T.val(s, hr) ? ', P: ' + T.val(s, hr) + '/min' : ''); };
+        var line = 'Aktív állás vizsgálat: fekve ' + p('as.supSys', 'as.supDia', 'as.supHr') + '; 0 perc ' + p('as.0Sys', 'as.0Dia', 'as.0Hr');
+        if (T.val(s, 'as.3Sys')) line += '; 3 perc ' + p('as.3Sys', 'as.3Dia', 'as.3Hr');
+        line += ' – ' + (a.oh ? 'ortosztatikus hypotonia' + (r.ohCertainty ? ' (OH okozta syncope ' + r.ohCertainty + ')' : '') : a.pots ? 'OH nélküli ortosztatikus pulzusemelkedés' : 'negatív') + '.';
+        L.push(line);
+      }
+    }
+    if (s['csm.result'] === 'pos') L.push('Carotis sinus masszázs: pozitív' + (r.csm.dx === 'CSS' ? ', a panaszok reprodukálódtak (carotis sinus szindróma).' : ' (carotis sinus hyperaesthesia).'));
+    else if (s['csm.result'] === 'neg') L.push('Carotis sinus masszázs: negatív.');
+    if (s['l.physical'] === 'yes') L.push('Fizikális vizsgálat során kóros eltérés nem észlelhető.');
+    L.push('EKG: ' + T.or(T.val(s, 'ekg.text')));
+    L.push('Labor: ' + T.or(T.val(s, 'lab.text')));
+    return L.join('\n');
+  }
+
+  function cause(r) {
+    var codes = (r.certain || []).map(function (d) { return d.code; });
+    if (codes.indexOf('VVS') >= 0) return 'vasovagalis syncope';
+    if (codes.indexOf('SIT') >= 0) return 'szituációs syncope';
+    if (codes.indexOf('OH') >= 0) return 'ortosztatikus syncope';
+    if (r.workingDx.some(function (d) { return /Reflex/.test(d.text); })) return 'reflex syncope';
+    if (r.workingDx.some(function (d) { return /Ortosztatikus/.test(d.text); })) return 'ortosztatikus syncope';
+    return 'benignus (reflex / szituációs / ortosztatikus) syncope';
+  }
+
+  function epicrisis(s, r) {
+    var t = ['A fentebb részletezett anamnézisű beteget ' + (s.presyncope ? 'presyncope' : 'eszméletvesztés') + ' miatt vizsgáltuk ambulanciánkon.'];
+    if (s.unstable === 'no') t.push('A beteg vizsgálóba érkezéskor stabil vitális paraméterekkel rendelkezett.');
+    if (s['l.physical'] === 'yes') t.push('Fizikális vizsgálata során alarmírozó eltérést nem észleltem.');
+    if (s['l.ekg'] === 'yes') t.push('EKG-n kóros eltérést nem láttam.');
+    else if (T.val(s, 'ekg.text')) t.push('EKG: ' + T.val(s, 'ekg.text') + '.');
+    if (r.as && r.as.done) t.push('Az aktív állás vizsgálat ' + (r.as.oh ? 'ortosztatikus hypotoniát igazolt.' : 'negatív volt.'));
+    if (r.category === 'OTHER') {
+      t.push('További ellátása: ' + (r.actions.length ? r.actions.map(function (a) { return a.text; }).join(' ') : B));
+      return t.join(' ');
+    }
+    if (r.certain && r.certain.length) t.push('A kezdeti vizsgálatok alapján ' + r.certain.map(function (d) { return d.text.charAt(0).toLowerCase() + d.text.slice(1); }).join(', ') + ' állapítható meg.');
+    if (r.risk && r.risk.level === 'low') {
+      t.push('A rizikóbecslés alapján alacsony kockázatú syncope. Kivizsgálásunk eredményeként sürgősségi teendőt igénylő elváltozást nem észleltünk, panaszai hátterében ' + cause(r) + ' feltételezhető.');
+      t.push('Sürgősségi teendő hiányában, jó általános állapotban, javaslatokkal ellátva otthonába emittáljuk.');
+    } else if (r.risk && r.risk.level === 'intermediate') {
+      t.push('A rizikóbecslés alapján közepes kockázatú syncope, ezért 12 órás SBO-monitorozás történt' + (s['obs.result'] === 'clear' ? ', mely során magas kockázatra utaló eltérés nem igazolódott.' : s['obs.result'] === 'high' ? ', mely során magas kockázatú ok igazolódott: ' + B + '.' : ': ' + B + '.'));
+      if (s['obs.result'] === 'clear') t.push('Jó általános állapotban, korai szakirányú járóbeteg-kivizsgálás javaslatával otthonába emittáljuk.');
+      else if (s['obs.result'] === 'high') t.push('Osztályos felvétel a diagnózis és kezelés céljából: ' + B + '.');
+    } else if (r.risk && r.risk.level === 'high') {
+      t.push('A rizikóbecslés alapján magas kockázatú syncope (' + r.risk.high.join('; ') + '). Monitorozás resuscitatiós készenlét mellett, további ellátása: ' + B + '.');
+    }
+    return t.join(' ');
+  }
+
+  function advice(s, r) {
+    var J = [];
+    var discharge = (r.risk && r.risk.level === 'low') || (r.risk && r.risk.level === 'intermediate' && s['obs.result'] === 'clear');
+    if (discharge) {
+      if (r.risk.level === 'low') {
+        J.push('Ájulásérzés esetén azonnal feküdjön le és emelje meg a lábait, vagy üljön le; alkalmazza a betanított ellenmanővereket: ' + C.COUNTER.map(function (c) { return c.name.toLowerCase(); }).join(', ') + '.');
+        J.push('Kerülje a provokáló tényezőket (tartós állás, zsúfolt, meleg hely).');
+        J.push(s['htn'] === 'yes' ? 'Folyadék- és sóbevitel a hypertonia miatt egyéni mérlegelés szerint.' : 'Bőséges folyadékfogyasztás (2–3 liter) és sóban gazdagabb étrend (kb. 10 g só naponta), ha orvosi okból nem szükséges sómegszorítás.');
+        if (s['rf.present']) J.push('Rizikófaktorai miatt kardiológiai szakrendelés felkeresése javasolt.');
+      } else {
+        J.push('Korai szakirányú (kardiológiai / syncope) járóbeteg-kivizsgálás.');
+      }
+      J.push('Háziorvosánál kontroll céljából jelentkezzen.');
+    } else if (r.category) {
+      J.push('A konzílium / fogadó osztály javaslata szerint: ' + B + '.');
+    }
+    J.push('Ismételt eszméletvesztés, mellkasi fájdalom, nehézlégzés, szívdobogásérzés vagy állapotrosszabbodás esetén a legközelebbi sürgősségi osztályon jelentkezzen.');
+    return J.map(function (j) { return '- ' + j; }).join('\n');
+  }
+
+  // BNO-10 javaslat (WHO ICD-10) – ellenőrizendő
+  function bno(s, r) {
+    var codes = (r.certain || []).map(function (d) { return d.code; });
+    if (codes.indexOf('OH') >= 0) return ['I95.1 Orthostaticus hypotonia'];
+    if (r.csm && r.csm.dx === 'CSS') return ['G90.0 Idiopathiás perifériás autonóm neuropathia (carotis sinus syncope)'];
+    if (codes.indexOf('ARR') >= 0 || codes.indexOf('ISCH') >= 0 || codes.indexOf('STRUCT') >= 0) return ['a kiváltó kórkép szerint (pl. I44.1 / I44.2 AV-blokk)', 'R55 Ájulás és összeesés'];
+    return r.category && r.category !== 'UNSTABLE' ? ['R55 Ájulás és összeesés'] : [];
+  }
+
+  function sections(s, r) {
+    s = s || {};
+    var dx = r.workingDx.map(function (d) { return d.text; });
+    var b = bno(s, r);
+    return [
+      { id: 'complaint', title: 'Jelen panasz', text: complaint(s) },
+      { id: 'status', title: 'Status', text: status(s, r) },
+      { id: 'epicrisis', title: 'Epikrízis', text: epicrisis(s, r) },
+      { id: 'dx', title: 'Diagnózis', text: (dx.length ? dx.join('; ') : B) + (b.length ? '\nBNO-javaslat (ellenőrizendő): ' + b.join(', ') : '') },
+      { id: 'advice', title: 'Javaslat', text: advice(s, r) },
+    ];
+  }
+
+  var api = { sections: sections, bno: bno };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.SyncopeDocs = api;
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+  <script>
+/*
+ * Eljárásrend-modul: „Syncope eljárásrend” (ÉPC-HK SBC SOP 5., v1.0).
+ * Függ: SBO, SyncopeLogic, SyncopeContent, SyncopeDocs.
+ */
+(function () {
+  'use strict';
+
+  var L = window.SyncopeLogic;
+  var C = window.SyncopeContent;
+  var D = window.SyncopeDocs;
+
+  function checks(map, when) {
+    return Object.keys(map).map(function (k) { return { type: 'check', key: k, label: map[k], when: when }; });
+  }
+  var isSyncope = function (s) { return s.tloc === 'syncope' && s.leading === 'yes'; };
+
+  var STEPS = [
+    {
+      id: 'start', title: 'Stabilitás, TLOC besorolás', ref: 'SOP 2., 4.1, 4. ábra',
+      fields: [
+        { type: 'yn', key: 'unstable', label: 'Cardiorespiratorikusan instabil a beteg?' },
+        { type: 'note', level: 'danger', when: function (s) { return s.unstable === 'yes'; }, html: 'Ellátás ABCDE séma szerint – az SOP ezt nem részletezi.' },
+        { type: 'choice', key: 'tloc', label: 'Az anamnézis alapján milyen eszméletvesztésről van szó?', options: [
+          { v: 'syncope', l: 'Syncope (átmeneti, hirtelen, rövid, spontán rendeződő)' },
+          { v: 'tloc_other', l: 'Átmeneti eszméletvesztés, de nem syncope (epilepszia, pszichogén, ritka ok)' },
+          { v: 'not_tloc', l: 'Nem átmeneti eszméletvesztés' },
+          { v: 'trauma', l: 'Fejtrauma okozta eszméletvesztés' }] },
+        { type: 'note', level: 'warn', when: function (s) { return s.tloc === 'trauma'; }, html: 'A fejsérülésről külön eljárásrend szól. <button type="button" class="btn small" data-open="fejserules">Fejsérülés modul megnyitása →</button>' },
+        { type: 'yn', key: 'leading', label: 'A syncope a vezető panasz? (nem egy más akut kórkép – pl. PE – kísérő tünete)', when: function (s) { return s.tloc === 'syncope'; } },
+        { type: 'check', key: 'presyncope', label: 'Presyncopéval érkezett (eszméletvesztés nem történt)', when: function (s) { return s.tloc === 'syncope'; } },
+        { type: 'widget', name: 'tlocTable' },
+      ],
+    },
+    {
+      id: 'initial', title: 'Kezdeti vizsgálatok', ref: 'SOP 4.1–4.4',
+      fields: [
+        { type: 'num', key: 'pt.age', label: 'Életkor (év)' },
+      ].concat(SBO.fields.vitals(), [
+        { type: 'heading', label: 'Anamnézis (auto- és hetero-)' },
+        { type: 'text', key: 'syn.when', label: 'Mikor történt (pl. „ma reggel, otthon”)' },
+        { type: 'choice', key: 'syn.position', label: 'Testhelyzet / körülmény', options: [
+          { v: 'standing', l: 'Állás' }, { v: 'sitting', l: 'Ülés' }, { v: 'supine', l: 'Fekvés' }, { v: 'exertion', l: 'Fizikai terhelés' }] },
+        { type: 'text', key: 'syn.trigger', label: 'Kiváltó tényező (fájdalom, félelem, mikció, köhögés, étkezés, meleg, zsúfolt hely…)' },
+        { type: 'choice', key: 'syn.prodrome', label: 'Prodroma', options: [
+          { v: 'typical', l: 'Típusos (sápadtság, verejtékezés, hányinger)' }, { v: 'short', l: 'Rövid (<10 mp)' }, { v: 'none', l: 'Nem volt' }] },
+        { type: 'text', key: 'syn.duration', label: 'Az eszméletvesztés időtartama' },
+        { type: 'text', key: 'syn.recovery', label: 'Magához térés (gyors, tiszta tudattal / zavartság)' },
+        { type: 'yn', key: 'syn.witness', label: 'Volt szemtanú (heteroanamnézis)?' },
+        { type: 'yn', key: 'syn.palp', label: 'Palpitáció?' },
+        { type: 'yn', key: 'syn.chest', label: 'Mellkasi fájdalom?' },
+        { type: 'yn', key: 'syn.dyspnea', label: 'Nehézlégzés?' },
+        { type: 'yn', key: 'syn.injury', label: 'Sérülés a rosszullét során?' },
+        { type: 'yn', key: 'syn.tongue', label: 'Nyelvharapás?' },
+        { type: 'yn', key: 'syn.incont', label: 'Inkontinencia?' },
+        { type: 'yn', key: 'hx.prevSyncope', label: 'Volt korábban syncopéja?' },
+        { type: 'text', key: 'syn.drugs', label: 'Gyógyszerek, friss gyógyszermódosítás (vazodilatátor, diuretikum, antidepresszáns…)' },
+        { type: 'heading', label: 'Aktív állás vizsgálat (folyamatos EKG-monitor mellett)' },
+        { type: 'widget', name: 'standing' },
+        { type: 'choice', key: 'as.reproduced', label: 'A panaszok reprodukálódtak a vizsgálat alatt?', options: [{ v: 'yes', l: 'Igen' }, { v: 'no', l: 'Nem (tünetmentes)' }],
+          when: function (s, r) { return r.as && r.as.oh; } },
+        { type: 'choice', key: 'as.history', label: 'Az anamnézisben szereplő tünetek OH-nak megfelelnek?', options: [
+          { v: 'full', l: 'Teljesen' }, { v: 'partial', l: 'Nem mindegyik' }, { v: 'less', l: 'Kevésbé' }], when: function (s, r) { return r.as && r.as.oh; } },
+        { type: 'heading', label: '12 elvezetéses EKG, labor' },
+        { type: 'text', key: 'ekg.text', label: 'EKG lelet (epikrízisbe)' },
+        { type: 'text', key: 'lab.text', label: 'Labor (troponin, D-dimer, vérgáz – a klinikum szerint)' },
+        { type: 'heading', label: 'További vizsgálatok indikációja' },
+        { type: 'check', key: 'x.arrhythmia', label: 'Aritmogén syncope gyanúja → azonnali EKG-monitor' },
+        { type: 'check', key: 'x.structural', label: 'Ismert / felmerülő strukturális szívbetegség → echokardiográfia' },
+        { type: 'check', key: 'x.lab', label: 'Ischaemia / PE / hypoxia gyanúja → célzott labor' },
+        { type: 'heading', label: 'Carotis sinus masszázs (40 év felett, feltételezett reflex mechanizmus, ismeretlen etiológia)' },
+        { type: 'check', key: 'csm.strokeTia', label: 'Korábbi stroke / TIA (óvatosan, magas kockázatnál elhagyható)' },
+        { type: 'check', key: 'csm.stenosis', label: '>70%-os carotis stenosis (óvatosan, magas kockázatnál elhagyható)' },
+        { type: 'choice', key: 'csm.result', label: 'CSM eredménye (fekve és állva)', options: [
+          { v: 'neg', l: 'Negatív' }, { v: 'pos', l: 'Pozitív (>3 mp pauza és/vagy >50 Hgmm szisztolés esés)' }, { v: 'nd', l: 'Nem történt' }] },
+        { type: 'yn', key: 'csm.reproduced', label: 'A beteg tünetei reprodukálódtak?', when: function (s) { return s['csm.result'] === 'pos'; } },
+      ]),
+    },
+    {
+      id: 'dx', title: 'Egyértelmű / felvethető diagnózis', ref: 'SOP 4.5–4.6',
+      fields: [
+        { type: 'heading', label: 'Egyértelmű vagy erősen valószínű diagnózis' },
+        { type: 'check', key: 'cert.vvs', label: 'Vasovagalis: fájdalom, félelem vagy állás váltotta ki, típusos progresszív prodromával (sápadtság, verejtékezés, hányinger)' },
+        { type: 'check', key: 'cert.situational', label: 'Szituációs: mikció, nyelés, székelés, köhögés, tüsszentés, terhelés, nevetés, fúvós hangszer váltotta ki' },
+        { type: 'check', key: 'cert.orthostatic', label: 'Ortosztatikus: állás közben, egyidejűleg kimutatott jelentős OH (aktív állás vizsgálat)' },
+        { type: 'heading', label: 'Aritmogén syncopét bizonyító EKG (egyben magas kockázat)' },
+      ].concat(checks(L.EKG_CERTAIN), [
+        { type: 'check', key: 'cert.ischemia', label: 'Igazolt akut myocardialis ischaemia mellett jelentkezett syncope' },
+        { type: 'check', key: 'cert.structural', label: 'Bizonyított strukturális ok: súlyos AS, pitvari myxoma, bal pitvari gömbthrombus, PE, akut aortadisszekció' },
+        { type: 'text', key: 'cert.structural.text', label: 'Melyik?', when: function (s) { return s['cert.structural']; } },
+        { type: 'heading', label: 'Ha nincs egyértelmű diagnózis: felvethető mechanizmus' },
+        { type: 'check', key: 'sug.reflex', label: 'Reflex syncopéra utal (korábbi syncope 40 év előtt, kellemetlen inger, tartós állás, étkezés, zsúfolt/meleg hely, autonóm prodroma, fejfordítás / carotis-nyomás, szívbetegség hiánya)' },
+        { type: 'check', key: 'sug.orth', label: 'Ortosztatikus syncopéra utal (állás alatt/után, tartós állás, terhelést követő állás, postprandiális hypotonia, autonóm neuropathia / parkinsonismus, hypotonizáló gyógyszer-módosítás)' },
+        { type: 'check', key: 'sug.cardiac', label: 'Kardiogén syncopéra utal (terhelés alatt / fekve, palpitáció után, fiatalkori hirtelen szívhalál a családban, strukturális / koszorúér-betegség, aritmogén EKG-eltérés)' },
+        { type: 'check', key: 'dxReviewed', label: 'Áttekintettem – egyértelmű diagnózis nincs, rizikóbecslés következik' },
+      ]),
+    },
+    {
+      id: 'risk', title: 'Rizikóbecslés', ref: 'SOP 5.',
+      fields: [
+        { type: 'heading', label: 'Magas kockázati jegyek (5.2)' },
+      ].concat(checks(L.HIGH), [
+        { type: 'check', key: 'hd.present', label: 'Szívbetegséghez vagy kóros EKG-hoz társuló syncope, és…' },
+      ], checks(L.HIGH_HD, function (s) { return s['hd.present']; }), [
+        { type: 'heading', label: 'Magas kockázatú EKG-eltérések' },
+      ], checks(L.EKG_HIGH), [
+        { type: 'check', key: 'hx.arrSync', label: 'A kórelőzményben aritmogén syncope szerepel (ekkor az alábbiak is magas kockázatot jelentenek)' },
+      ], checks(L.EKG_COND, function (s) { return s['hx.arrSync']; }), [
+        { type: 'check', key: 'h.none', label: 'Áttekintettem: egyik magas kockázati jegy sem áll fenn' },
+        { type: 'heading', label: 'Alacsony kockázati jegyek (5.1)' },
+      ], checks(L.LOW), [
+        { type: 'yn', key: 'l.physical', label: 'Negatív fizikális vizsgálat?' },
+        { type: 'yn', key: 'l.ekg', label: 'EKG eltérés nélkül?' },
+        { type: 'heading', label: 'Közepes kockázati jegyek (5.3)' },
+      ], checks(L.MID), [
+        { type: 'widget', name: 'risk' },
+      ]),
+    },
+    {
+      id: 'dispo', title: 'Diszpozíció, kezelés', ref: 'SOP 6.',
+      fields: [
+        { type: 'choice', key: 'obs.result', label: '12 órás SBO-monitorozás eredménye', when: function (s, r) { return r.risk && r.risk.level === 'intermediate'; }, options: [
+          { v: 'clear', l: 'Magas kockázatra utaló eltérés nem igazolódott' }, { v: 'high', l: 'Magas kockázatú, felvételt igénylő ok igazolódott' }] },
+        { type: 'heading', label: 'Osztályos felvétel indikációi (6.4.2)', when: function (s, r) { return r.risk && r.risk.level === 'high'; } },
+      ].concat(checks(L.ADMIT, function (s, r) { return r.risk && r.risk.level === 'high'; }), [
+        { type: 'heading', label: 'SBO fektetős obszerváció indikációi (6.4.1)', when: function (s, r) { return r.risk && r.risk.level === 'high'; } },
+      ], checks(L.OBSERVE, function (s, r) { return r.risk && r.risk.level === 'high'; }), [
+        { type: 'heading', label: 'Hazabocsátás esetén', when: function (s, r) { return r.risk && r.risk.level !== 'high'; } },
+        { type: 'yn', key: 'htn', label: 'Hypertoniás a beteg? (a folyadék- és sóbevitel javaslatához)', when: function (s, r) { return r.risk && r.risk.level === 'low'; } },
+        { type: 'check', key: 'rf.present', label: 'Rizikófaktorok miatt kardiológiai szakrendelésre irányítás', when: function (s, r) { return r.risk && r.risk.level === 'low'; } },
+        { type: 'widget', name: 'treatment' },
+      ]),
+    },
+    { id: 'summary', title: 'Összegzés / dokumentáció', ref: '', fields: [{ type: 'summary' }] },
+  ];
+
+  function stepVisible(id, s, r) {
+    switch (id) {
+      case 'initial': case 'dx': case 'risk': return s.unstable === 'no' && isSyncope(s);
+      case 'dispo': return s.unstable === 'no' && isSyncope(s) && !!(r.risk && r.risk.level);
+      default: return true;
+    }
+  }
+
+  var widgets = {
+    tlocTable: {
+      render: function () {
+        var t = C.REFERENCE.filter(function (x) { return x.id === 'tloc'; })[0];
+        return '<details class="drugs"><summary>Syncope vagy epilepsziás roham? (2. ábra)</summary>' + t.html + '</details>';
+      },
+    },
+    standing: {
+      render: function (ctx) {
+        var inp = function (k, ph) { return '<input type="number" inputmode="numeric" placeholder="' + ph + '" data-key="' + k + '" value="' + ctx.esc(ctx.state[k]) + '">'; };
+        return '<div class="orth"><table><thead><tr><th></th><th>Szisztolés</th><th>Diasztolés</th><th>Pulzus</th></tr></thead><tbody>' +
+          '<tr><th>Fekve</th><td>' + inp('as.supSys', 'Hgmm') + '</td><td>' + inp('as.supDia', 'Hgmm') + '</td><td>' + inp('as.supHr', '/perc') + '</td></tr>' +
+          '<tr><th>Állva 0 perc</th><td>' + inp('as.0Sys', 'Hgmm') + '</td><td>' + inp('as.0Dia', 'Hgmm') + '</td><td>' + inp('as.0Hr', '/perc') + '</td></tr>' +
+          '<tr><th>Állva 3 perc</th><td>' + inp('as.3Sys', 'Hgmm') + '</td><td>' + inp('as.3Dia', 'Hgmm') + '</td><td>' + inp('as.3Hr', '/perc') + '</td></tr>' +
+          '<tr><th>Állva 10 perc</th><td></td><td></td><td>' + inp('as.10Hr', '/perc') + '</td></tr>' +
+          '</tbody></table></div>';
+      },
+      live: function (ctx) {
+        var a = ctx.r.as;
+        if (a.done && !a.manual) {
+          return '<div class="note ' + (a.oh || a.pots ? 'warn' : 'ok') + '">' +
+            (a.oh ? '<b>Ortosztatikus hypotonia</b>: ' + a.reasons.map(ctx.esc).join('; ') : a.pots ? '<b>OH nélküli ortosztatikus pulzusemelkedés</b> (' + (a.hrRise !== null ? '+' + a.hrRise + '/perc' : '') + (a.maxHr !== null ? ', max. ' + a.maxHr + '/perc' : '') + ') – POTS megfontolandó, ha a panaszokat reprodukálja' : 'Nem kóros') +
+            (ctx.r.ohCertainty ? '<br>OH okozta syncope: <b>' + ctx.r.ohCertainty + '</b>' : '') +
+            '<br><small>SOP 4.4: >20 Hgmm szisztolés vagy >10 Hgmm diasztolés esés, vagy <90 Hgmm szisztolés; POTS: >30/perc emelkedés vagy >120/perc OH nélkül.</small></div>';
+        }
+        return ctx.radios('as.manual', [{ v: 'pos', l: 'Pozitív' }, { v: 'neg', l: 'Negatív' }], 'Vagy az eredmény közvetlenül:');
+      },
+    },
+    risk: {
+      render: function () { return ''; },
+      live: function (ctx) {
+        var r = ctx.r.risk;
+        if (!r || !r.level) return '<div class="note info">Jelöljön magas kockázati jegyet, vagy erősítse meg, hogy egyik sem áll fenn.</div>';
+        var cls = { low: 'ok', intermediate: 'warn', high: 'danger' }[r.level];
+        var t = { low: 'Alacsony kockázat', intermediate: 'Közepes kockázat', high: 'Magas kockázat' }[r.level];
+        return '<div class="note ' + cls + '"><b>' + t + '</b>' + (r.high.length ? '<br>Magas: ' + r.high.map(ctx.esc).join('; ') : '') +
+          (r.mid.length ? '<br>Közepes: ' + r.mid.map(ctx.esc).join('; ') : '') +
+          (r.level === 'intermediate' && !r.mid.length ? '<br>Sem az alacsony (negatív fizikális vizsgálat + normál EKG + alacsony kockázati jegy), sem a magas kockázat feltételei nem teljesülnek.' : '') + '</div>';
+      },
+    },
+    treatment: {
+      render: function (ctx) {
+        return '<div class="note info"><b>Kezelési megfontolások (6.6):</b> súlyos / gyakori reflex syncope alacsony vérnyomás fenotípussal vagy hipotonizáló gyógyszerrel → szakirányú járóbeteg-kivizsgálás. Esésre hajlamosaknál ACE-gátló, ARB, Ca-csatorna-blokkoló előnyben a diuretikummal és béta-blokkolóval szemben. Hypertonia hiányában 2–3 l folyadék és 10 g só naponta.</div>' +
+          '<button type="button" class="btn" data-goto-ref="leaflet">Betegtájékoztató (ellenmanőverek) megnyitása / nyomtatása</button>';
+      },
+    },
+  };
+
+  SBO.register({
+    id: 'syncope',
+    title: 'Syncope',
+    short: 'Syncope',
+    description: 'TLOC besorolás, aktív állás vizsgálat, CSM, egyértelmű diagnózisok, rizikóbecslés, diszpozíció, betegtájékoztató.',
+    sop: C.SOP,
+    steps: STEPS,
+    stepVisible: stepVisible,
+    stageToStep: { start: 'start', dx: 'dx', risk: 'risk', done: 'summary' },
+    evaluate: L.evaluate,
+    categories: { UNSTABLE: 'Instabil beteg – ABCDE', OTHER: 'Nem a syncope eljárásrend tárgya', LOW: 'Alacsony kockázatú syncope', INTERMEDIATE: 'Közepes kockázatú syncope', HIGH: 'Magas kockázatú syncope' },
+    dangerCategories: ['UNSTABLE', 'HIGH'],
+    widgets: widgets,
+    reportFindings: function (s, r) {
+      var lines = [];
+      if (r.as && r.as.done) lines.push('AKTÍV ÁLLÁS: ' + (r.as.oh ? 'OH (' + (r.as.reasons || []).join('; ') + ')' : r.as.pots ? 'OH nélküli pulzusemelkedés' : 'negatív') + (r.ohCertainty ? ' – OH-syncope ' + r.ohCertainty : ''));
+      if (s['csm.result'] === 'pos' || s['csm.result'] === 'neg') lines.push('CSM: ' + (s['csm.result'] === 'pos' ? 'pozitív (' + r.csm.dx + ')' : 'negatív'));
+      if (r.risk && r.risk.level) {
+        lines.push('RIZIKÓ: ' + { low: 'alacsony', intermediate: 'közepes', high: 'magas' }[r.risk.level]);
+        r.risk.high.concat(r.risk.mid).forEach(function (x) { lines.push('- ' + x); });
+      }
+      return lines;
+    },
+    docSections: function (s, r) { return D.sections(s, r); },
+    reference: function () { return C.REFERENCE; },
+  });
+})();
+
+</script>
+  <script>
+/*
+ * Döntési logika – „Intracranialis vérzések sürgősségi kezelése” SOP (ÉPC-HK SBC, 17., v1.0, 2024.04.25.)
+ * Tiszta függvények; böngészőben window.HeadInjuryLogic, Node-ban module.exports.
+ * Minden következtetés mellett `ref`: az SOP fejezete / melléklete.
+ */
+(function (root) {
+  'use strict';
+
+  var yes = function (v) { return v === 'yes' || v === true; };
+  var num = function (v) {
+    if (v === null || v === undefined || v === '') return null;
+    var n = Number(String(v).replace(',', '.'));
+    return isFinite(n) ? n : null;
+  };
+
+  /* ------------------------------------------------------------------ */
+  /* GCS                                                                 */
+  /* ------------------------------------------------------------------ */
+  function gcs(s) {
+    var e = num(s['gcs.e']), v = num(s['gcs.v']), m = num(s['gcs.m']);
+    if (e === null || v === null || m === null) return { complete: false, total: null };
+    return { complete: true, e: e, v: v, m: m, total: e + v + m };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Rizikócsoport – SOP 4.                                              */
+  /* ------------------------------------------------------------------ */
+  var HIGH = {
+    'hr.neuro': 'Neurológiai kórjelek (aluszékony / soporosus betegnél anisocoria, durva végtaggyengeség, epilepsziás rosszullét)',
+    'hr.progressive': 'A tudatzavar progresszív',
+    'hr.penetrating': 'Penetráló vagy impressziós koponyasérülés és/vagy súlyos maxillofacialis sérülés',
+    'hr.mechanism': 'A baleseti mechanizmus vagy a külsérelem alapján intracranialis sérülés valószínű',
+    'hr.atls': 'ATLS-kritérium (eszméletlen; >2 m / testmagasság feletti esés; járműből kirepült; nagy sebességű ütközés: gyalogos >5 km/h, motoros >30 km/h, személygépkocsi >60 km/h; karosszéria-deformitás; elhunyt a járműben; légzsák nyílt)',
+  };
+  var MODERATE = {
+    'mr.loc': 'Bizonyítható eszméletvesztés a sérüléskor vagy azt követően',
+    'mr.headache': 'Progresszív (egyértelműen erősödő) vagy elviselhetetlen fejfájás és/vagy zavartság, nyugtalanság',
+    'mr.intox': 'Alkohol- vagy drogintoxikáció (feltételezhető vagy bizonyítható)',
+    'mr.seizure': 'Epilepsziás görcs vagy arra utaló adat',
+    'mr.unreliable': 'Megbízhatatlan anamnézis, anamnézis nem nyerhető',
+    'mr.pta': 'Poszttraumás amnézia',
+    'mr.basal': 'Koponyaalapi törés fizikális jelei',
+    'mr.repeated': 'Többszörösen ismételt trauma',
+    'mr.depressed': 'Impressziós koponyatörés gyanúja',
+    'mr.nai': 'Bántalmazás (bántalmazott gyermek / családon belüli erőszak) gyanúja',
+    'mr.subgaleal': 'Nagy kiterjedésű subgalealis vérzés és duzzanat',
+    'mr.coag': 'Antikoagulált, thrombocytaaggregáció-gátlót szedő, dekompenzált májbeteg vagy más coagulopathiás sérült',
+    'mr.focal': 'Ismeretlen eredetű / korú fokális neurológiai tünet',
+    'mr.multi': 'Változó korú, többszörös sérülésre utaló külsérelmek',
+    'mr.xray': 'Koponyatörés RTG-jelei',
+  };
+
+  function vomitCount(s) { var n = num(s['vomit.n']); return n === null ? 0 : n; }
+
+  function riskGroup(s) {
+    var g = gcs(s);
+    var high = Object.keys(HIGH).filter(function (k) { return s[k]; }).map(function (k) { return HIGH[k]; });
+    if (g.complete && g.total <= 12) high.unshift('GCS ' + g.total + ' (≤12) – tudatzavar');
+    var mod = Object.keys(MODERATE).filter(function (k) { return s[k]; }).map(function (k) { return MODERATE[k]; });
+    if (vomitCount(s) >= 2) mod.push('Kettő vagy többszöri hányás (' + vomitCount(s) + '×)');
+    var age = num(s['pt.age']);
+    if (age !== null && (age < 2 || age > 70) && !s['mr.trivial']) mod.push('Életkor ' + age + ' év (<2 vagy >70 év, nem teljesen jelentéktelen sérülés)');
+    var level = null;
+    if (high.length) level = 'high';
+    else if (mod.length) level = 'moderate';
+    else if (s['risk.none']) level = 'low';
+    return { level: level, high: high, moderate: mod };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* CT-indikáció és időzítés – SOP 7. és 13.                            */
+  /* ------------------------------------------------------------------ */
+  function ctIndication(s, risk) {
+    var g = gcs(s);
+    var r1 = [];   // 1 órán belül
+    if (g.complete && g.total <= 12) r1.push('GCS ≤12 a kezdeti értékeléskor');
+    if (s['ct.gcs2h'] === 'yes') r1.push('GCS <15 a sérülés után 2 órával');
+    if (s['mr.depressed'] || s['hr.penetrating']) r1.push('Nyílt vagy impressziós koponyatörés gyanúja');
+    if (s['mr.basal']) r1.push('Koponyaalapi törés jele (haemotympanum, pápaszem-haematoma, liquorrhoea)');
+    if (s['mr.seizure']) r1.push('Poszttraumás roham');
+    if (s['mr.focal'] || s['hr.neuro']) r1.push('Fokális neurológiai deficit');
+    if (vomitCount(s) > 1) r1.push('Több mint 1 hányásos epizód');
+
+    var r8 = [];   // eszméletvesztés / amnézia + kockázati tényező → 8 órán belül
+    var locAmn = s['mr.loc'] || s['mr.pta'];
+    if (locAmn) {
+      var age = num(s['pt.age']);
+      if (age !== null && age >= 65) r8.push('65 éves vagy idősebb');
+      if (s['mr.coag']) r8.push('Vérzési vagy véralvadási zavar');
+      if (s['ct.dangerous']) r8.push('Veszélyes sérülési mechanizmus (elütött gyalogos/kerékpáros, járműből kiesett, >1 m vagy 5 lépcsőfok)');
+      if (s['ct.retro']) r8.push('>30 perces retrográd amnézia');
+    }
+
+    var out = { indicated: false, timing: null, reasons: [], cspine: [], highExtra: false };
+    if (r1.length) { out.indicated = true; out.timing = '1h'; out.reasons = r1; }
+    else if (r8.length) {
+      out.indicated = true;
+      out.timing = s['ct.over8h'] ? '1h' : '8h';
+      out.reasons = ['Eszméletvesztés / amnézia és: ' + r8.join(', ')];
+    }
+    // Összegző szabály: minden legalább közepes kockázatú fejsérültnél non-contrast CT
+    if (risk.level === 'moderate' || risk.level === 'high') {
+      out.indicated = true;
+      if (!out.timing) out.timing = 'indicated';
+      if (!out.reasons.length) out.reasons = ['Legalább közepes kockázatú fejsérült'];
+    }
+    if (risk.level === 'high') out.highExtra = true; // CI–CII (optimálisan CI–ThI) CT-vel kiegészítve
+
+    // Nyaki gerinc CT (SOP 7.)
+    if (g.complete && g.total <= 12) out.cspine.push('GCS ≤12 a kezdeti értékeléskor');
+    if (s['cs.intubated']) out.cspine.push('Intubált beteg');
+    if (s['cs.urgent']) out.cspine.push('A nyaki gerinc sérülésének sürgős definitív diagnózisa szükséges');
+    if (s['cs.polytrauma']) out.cspine.push('Éber, stabil betegnél a fejet és a mellkast/hasat/medencét is érintő tompa polytrauma');
+    if (s['cs.suspicion']) {
+      var f = [];
+      var a = num(s['pt.age']);
+      if (a !== null && a >= 65) f.push('≥65 év');
+      if (s['cs.mech']) f.push('veszélyes mechanizmus');
+      if (s['cs.focal']) f.push('fokális perifériás neurológiai deficit');
+      if (s['cs.paresth']) f.push('paresztézia a végtagokban');
+      if (s['mr.intox']) f.push('intoxikáció');
+      if (f.length) out.cspine.push('Nyaki gerinc sérülésének klinikai gyanúja és: ' + f.join(', '));
+    }
+    return out;
+  }
+
+  /* Speciális betegcsoport (SOP 13.) – csak közepes kockázatnál */
+  function special(s, risk, ct) {
+    if (risk.level !== 'moderate') return null;
+    var g = gcs(s);
+    if (s['sp.anticoag'] === 'vka' || s['sp.anticoag'] === 'noac') {
+      var inr = num(s['inr']);
+      var res = { group: 'anticoag', inr: inr };
+      if (ct.timing === '1h') { res.ctTiming = 'now'; res.symptomatic = true; return res; }
+      if (inr === null) { res.ctTiming = null; return res; }
+      if (inr > 1.4) { res.ctTiming = 'now'; res.obs12 = true; }
+      else if (inr < 1.4) { res.ctTiming = '4h'; }
+      else { res.ctTiming = 'now'; res.obs12 = true; res.borderline = true; } // INR = 1,4: az SOP nem definiálja → biztonságosabb út
+      return res;
+    }
+    if (s['sp.tag'] === 'yes') {
+      var sym = [];
+      if (g.complete && g.total < 15) sym.push('GCS <15');
+      if (s['mr.headache']) sym.push('progresszív fejfájás');
+      if (vomitCount(s) > 2) sym.push('kettőnél többször hányt');
+      if (s['sp.amnesia']) sym.push('elhúzódó amnézia');
+      return sym.length ? { group: 'tag', ctTiming: 'now', obs12: true, reasons: sym } : { group: 'tag', ctTiming: '4h', reasons: [] };
+    }
+    return null;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Fő kiértékelés – 1. melléklet (folyamatábra), 2., 11–13. fejezet     */
+  /* ------------------------------------------------------------------ */
+  var NONTRAUMA = {
+    deep: { dx: 'Nem traumás, hypertoniás (törzsdúci) ICH', dispo: 'Szinte kizárólag stroke-centrumba helyezendő.' },
+    lobar: { dx: 'Nem traumás lobáris vérzés', dispo: 'További kivizsgálás (CT-angiográfia, esetleg halasztott DSA), majd SBO fektető / idegsebészeti osztály, esetleg területi neurológia; ritkán műtét.' },
+    sah: { dx: 'Nem traumás subarachnoidealis vérzés', dispo: 'Neuroendovascularis ellátás: előzetes referálást követően hétköznap 24 órában intézményünkben; ha ez nem lehetséges, vagy hétvégén, az idegsebész az OMIII-ba referálja.' },
+  };
+
+  function admissionReasons(s) {
+    var map = {
+      'adm.imaging': 'Új, klinikailag fontos eltérés a képalkotás során',
+      'adm.gcs': 'A GCS nem tért vissza 15-re / a sérülés előtti alapvonalra',
+      'adm.symptoms': 'Folyamatos aggasztó tünetek (tartós hányás, súlyos fejfájás, görcsroham)',
+      'adm.other': 'Egyéb aggodalomra okot adó klinikum (intoxikáció, egyéb sérülés, sokk, nem véletlen sérülés gyanúja, meningitis, liquorcsorgás, fennálló poszttraumás amnézia)',
+    };
+    return Object.keys(map).filter(function (k) { return s[k]; }).map(function (k) { return map[k]; });
+  }
+
+  function evaluate(s) {
+    s = s || {};
+    var r = { category: null, stage: 'start', path: [], alerts: [], workingDx: [], actions: [], disposition: [], differentials: [] };
+    var add = function (list, text, ref) { r[list].push({ text: text, ref: ref }); };
+    var alert = function (level, text, ref) { r.alerts.push({ level: level, text: text, ref: ref }); };
+    r.gcs = gcs(s);
+
+    if (s.critical === 'yes') {
+      alert('danger', 'Kritikus állapotú beteg: vizsgálat és ellátás ABCDE szerint, monitorozás (légzés, SpO₂, pulzus/EKG, RR); célzott oxigénterápia (SpO₂ 90–94%).', 'SOP 5.');
+    }
+    if (r.gcs.complete && r.gcs.total < 8) {
+      alert('danger', 'GCS ' + r.gcs.total + ' (<8): emelt szintű légútbiztosítás javasolt (RSI, váltásvezetővel egyeztetve).', 'SOP 5. AB');
+    }
+    if (s['sp.anticoag'] === 'vka') alert('warn', 'K-vitamin-antagonistát szedő betegnél az INR levétele minden esetben kötelező.', 'SOP 6.');
+
+    if (!s.etiology) { r.stage = 'start'; return r; }
+
+    /* ---------------- Nem traumás ICH ---------------- */
+    if (s.etiology === 'nontrauma') {
+      r.category = 'NONTRAUMA';
+      r.path.push('Nem traumás intracranialis vérzés');
+      add('actions', 'Non-contrast koponya CT (gold standard).', 'SOP 7.');
+      add('actions', 'Labor: ionok, vese- és májfunkció, vérkép, vércsoport és ellenanyagszűrés, alvadási paraméterek (INR, APTI, TI, TCT, fibrinogén; ClotPro).', 'SOP 6.');
+      add('actions', 'Antikoaguláns terápia felfüggesztése: lásd ClotPro eljárásrend.', 'SOP 8.');
+      if (!s['nt.type']) { r.stage = 'nontrauma'; return r; }
+      var nt = NONTRAUMA[s['nt.type']];
+      r.path.push(nt.dx);
+      r.workingDx.push({ text: nt.dx, ref: 'SOP 2.' });
+      if (s['nt.type'] === 'sah') add('actions', 'SAV esetén még a CT-vizsgálóban idegsebészeti / radiológiai konzultáció a CTA elvégzéséről.', 'SOP 7.');
+      if (s['nt.large'] === 'yes') {
+        alert('danger', 'Nagyméretű, sebészileg hozzáférhető ICH vagy obstruktív hydrocephalus: az idegsebészeti konzultáció életmentő – a CT után mihamarabb értesítse az idegsebészt.', 'SOP 9.');
+        add('actions', 'Azonnali idegsebészeti konzultáció.', 'SOP 9.');
+      }
+      add('disposition', nt.dispo, 'SOP 2.');
+      r.stage = 'treatment';
+      return r;
+    }
+
+    /* ---------------- Traumás fejsérülés ---------------- */
+    r.path.push('Traumás fejsérülés');
+    var risk = riskGroup(s);
+    r.risk = risk;
+    if (!risk.level) { r.stage = 'risk'; return r; }
+    var label = { low: 'Alacsony', moderate: 'Közepes', high: 'Magas' }[risk.level];
+    r.category = { low: 'LOW', moderate: 'MODERATE', high: 'HIGH' }[risk.level];
+    r.path.push(label + ' kockázatú fejsérült');
+
+    if (risk.level === 'low') {
+      add('disposition', 'Alacsony kockázat: CT nem szükséges; emisszió, ha nincs más felvételt indokoló tényező, és a biztonságos otthonbocsátás feltételei (pl. otthoni felügyelet) adottak.', 'SOP 12., 1. melléklet');
+      add('actions', 'Fejsérülteknek szóló tájékoztató átadása, tényének rögzítése az epikrízisben.', 'SOP 12., 2. melléklet');
+      r.ct = { indicated: false, reasons: [], cspine: [] };
+      r.stage = 'dispo';
+      return evaluateDischarge(s, r, add, alert);
+    }
+
+    var ct = ctIndication(s, risk);
+    r.ct = ct;
+    var sp = special(s, risk, ct);
+    r.special = sp;
+    if (risk.level === 'moderate' || risk.level === 'high') {
+      add('actions', 'Oxigénterápia (legalább orrszonda) már a CT megkezdése előtt.', 'SOP 5. AB');
+    }
+
+    // CT időzítése
+    if (sp && sp.group === 'anticoag') {
+      if (sp.inr === null && sp.ctTiming === null) {
+        alert('warn', 'Antikoagulált, közepes kockázatú betegnél a CT időzítése az INR-től függ – adja meg az INR értékét.', 'SOP 13.1');
+        r.stage = 'ct';
+        return r;
+      }
+      if (sp.ctTiming === 'now') add('actions', 'Azonnali non-contrast koponya CT' + (sp.symptomatic ? ' (1 órás CT-kritérium áll fenn).' : ' (INR ' + sp.inr + ' > 1,4).'), 'SOP 13.1, 7.');
+      else add('actions', 'Non-contrast koponya CT a trauma után 4 órával (INR ' + sp.inr + ' < 1,4).', 'SOP 13.1');
+      if (sp.borderline) alert('warn', 'INR = 1,4: az SOP csak az „1,4 felett” és „1,4 alatt” esetet definiálja – a biztonságosabb utat (azonnali CT, negatív CT esetén 12 órás obszerváció) javasoljuk.', 'SOP 13.1; óvatossági elv');
+      if (s['sp.anticoag'] === 'noac') alert('info', 'NOAC-hatást az INR nem tükrözi megbízhatóan (nem az SOP része) – a klinikai megítélés és a ClotPro eljárásrend irányadó.', 'nem SOP');
+    } else if (sp && sp.group === 'tag') {
+      if (sp.ctTiming === 'now') add('actions', 'Azonnali non-contrast koponya CT (TAG-gátló + ' + sp.reasons.join(', ') + ').', 'SOP 13.2');
+      else add('actions', 'Tünetmentes, TAG-gátlót szedő beteg: non-contrast koponya CT a trauma után 4 órával.', 'SOP 13.2');
+    } else if (ct.timing === '1h') {
+      add('actions', 'Non-contrast koponya CT 1 órán belül: ' + ct.reasons.join('; ') + '.', 'SOP 7.');
+    } else if (ct.timing === '8h') {
+      add('actions', 'Non-contrast koponya CT a fejsérülést követő 8 órán belül: ' + ct.reasons.join('; ') + '.', 'SOP 7.');
+    } else {
+      add('actions', 'Non-contrast koponya CT (minden legalább közepes kockázatú fejsérültnél).', 'SOP 7.');
+    }
+    if (ct.highExtra) add('actions', 'Magas kockázat: a CT kiegészítése legalább a CI–CII, optimálisan a CI–ThI szegmentumokkal.', 'SOP 7.');
+    if (ct.cspine.length) add('actions', 'Nyaki gerinc CT is szükséges: ' + ct.cspine.join('; ') + '.', 'SOP 7.');
+    add('actions', 'Labor: ionok, vese- és májfunkció, vérkép, vércsoport és ellenanyagszűrés, alvadási paraméterek (INR, APTI, TI, TCT, fibrinogén; ClotPro).', 'SOP 6.');
+
+    if (!s['ct.result']) { r.stage = 'ct'; return r; }
+
+    if (s['ct.result'] === 'pos') {
+      r.category = 'POSITIVE';
+      r.path.push('CT: intracranialis vérzés / traumás eltérés igazolódott');
+      r.workingDx.push({ text: 'Traumás intracranialis sérülés (CT-vel igazolt)', ref: 'SOP 7.' });
+      alert('danger', 'Pozitív CT: azonnali idegsebészeti konzílium.', '1. melléklet, SOP 9., 13.');
+      add('actions', 'Azonnali idegsebészeti konzílium.', 'SOP 9., 13.');
+      if (sp && sp.group === 'anticoag') add('actions', 'Antikoagulált beteg, pozitív CT: PCC adása javasolt; antikoaguláció felfüggesztése a ClotPro eljárásrend szerint.', 'SOP 13.1, 8.');
+      if (s['ct.sah']) add('actions', 'SAV: még a CT-vizsgálóban idegsebészeti / radiológiai konzultáció a CTA elvégzéséről.', 'SOP 7.');
+      add('actions', 'Obszerváció (ha nem kerül azonnal intenzív osztályra vagy műtőbe): GCS, pupilla, végtagmozgások, légzésszám, pulzus, RR, hőmérséklet, SpO₂ – félóránként a 15-ös GCS eléréséig, majd 6 órán át óránként, utána 2 óránként. Kontroll CT az első vizsgálat után 12 órával, neurológiai romlásnál azonnal.', 'SOP 11.');
+      var dec = { op: 'Műtő', ito: 'Intenzív osztály', obs: 'SBO fektető részleg – obszerváció', other: 'Elhelyezés egyeztetés alatt / idegsebészeti javaslat alapján' }[s['ns.decision']];
+      add('disposition', dec ? dec + ' (idegsebészeti konzílium alapján).' : 'Elhelyezés az idegsebészeti konzílium alapján: műtő / ITO / fektető.', '1. melléklet, SOP 11–12.');
+      r.stage = s['ns.decision'] ? 'done' : 'ctresult';
+      return r;
+    }
+
+    // Negatív CT
+    r.path.push('CT: negatív');
+    if (risk.level === 'high') {
+      r.workingDx.push({ text: 'Magas kockázatú fejsérülés, negatív CT', ref: '1. melléklet' });
+      add('disposition', 'Magas kockázatú fejsérült, negatív CT: obszerváció.', '1. melléklet, SOP 11.');
+      add('actions', 'Neurológiai megfigyelés: félóránként a 15-ös GCS eléréséig, majd 6 órán át óránként, utána 2 óránként.', 'SOP 11.');
+      r.stage = 'dispo';
+      return evaluateDischarge(s, r, add, alert, true);
+    }
+    if (sp && sp.obs12) {
+      r.workingDx.push({ text: (sp.group === 'anticoag' ? 'Antikoagulált' : 'TAG-gátlót szedő') + ', közepes kockázatú fejsérült, negatív CT', ref: 'SOP 13.' });
+      add('disposition', '12 órás obszerváció; panaszmentesség esetén ezt követően emisszió, panasz esetén kontroll non-contrast CT és idegsebészeti rekonzílium.', 'SOP 13.');
+      if (s['obs.result'] === 'symptoms') {
+        alert('warn', 'Az obszerváció alatt panasz jelentkezett: kontroll non-contrast CT és idegsebészeti rekonzílium.', 'SOP 13.');
+        add('actions', 'Kontroll non-contrast CT és idegsebészeti rekonzílium.', 'SOP 13.');
+        r.stage = 'done';
+        return r;
+      }
+      if (s['obs.result'] !== 'free') { r.stage = 'dispo'; return r; }
+      r.path.push('12 órás obszerváció alatt panaszmentes');
+      return evaluateDischarge(s, r, add, alert);
+    }
+    r.workingDx.push({ text: 'Közepes kockázatú fejsérülés, negatív CT', ref: '1. melléklet' });
+    add('disposition', 'Közepes kockázat, negatív CT: emisszió, ha a feltételek teljesülnek.', '1. melléklet, SOP 12–13.');
+    return evaluateDischarge(s, r, add, alert);
+  }
+
+  function evaluateDischarge(s, r, add, alert, observed) {
+    var adm = admissionReasons(s);
+    r.stage = 'dispo';
+    if (adm.length) {
+      alert('warn', 'Hospitalizációs kritérium: ' + adm.join('; ') + '.', 'SOP 11.');
+      add('disposition', 'Hospitalizáció szükséges (' + adm.join('; ') + ').', 'SOP 11.');
+      r.discharge = false;
+      r.stage = 'done';
+      return r;
+    }
+    var need = [];
+    if (r.ct && r.ct.indicated !== false && s['dc.gcs'] !== 'yes') need.push('a GCS visszatért 15-re / a sérülés előtti értékre');
+    if (s['dc.noother'] !== 'yes') need.push('nincs más felvételt indokoló tényező');
+    if (s['dc.supervision'] !== 'yes') need.push('megfelelő otthoni felügyelet biztosított');
+    if (need.length) {
+      if (observed) add('actions', 'Obszerváció után hazaengedhető, ha minden jelentős tünet és jel megszűnt, és otthoni felügyelete megfelelő.', 'SOP 12.');
+      r.dischargePending = need;
+      return r;
+    }
+    r.discharge = true;
+    add('disposition', (observed ? 'Obszervációt követően, a tünetek megszűnése után emittálható.' : 'Emittálható.') + ' A fejsérülteknek szóló tájékoztatót csatolni kell, átadását az epikrízisben rögzíteni.', 'SOP 12., 2. melléklet');
+    if (!s['leaflet.given']) alert('info', 'A fejsérülteknek szóló tájékoztató átadását az epikrízisben rögzíteni kell (Összegzés lépés, „Tájékoztató átadva”).', 'SOP 12.');
+    if (s['sp.anticoag'] === 'vka' || s['sp.anticoag'] === 'noac' || s['sp.tag'] === 'yes') {
+      alert('warn', 'A tájékoztató „vérhígító szert ne szedjen” mondata antikoagulált / TAG-gátlót szedő betegnél egyedi orvosi döntést igényel – az SOP ezt nem részletezi, a Javaslatot ennek megfelelően pontosítsa.', 'SOP 2. melléklet; nem SOP');
+    }
+    r.stage = 'done';
+    return r;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Kalkulátorok – SOP 5. és 10.                                        */
+  /* ------------------------------------------------------------------ */
+  function bpTargets(s) {
+    var sys = num(s['bp.sys']);
+    if (sys === null) return null;
+    var out = { sys: sys, floor1h: Math.round(sys * 0.85) };
+    if (sys < 90) out.zone = 'hypo';
+    else if (sys > 220) out.zone = 'over220';
+    else if (sys >= 150) out.zone = '150-220';
+    else out.zone = 'normal';
+    return out;
+  }
+
+  function doses(s) {
+    var w = num(s['wt']);
+    if (w === null || w <= 0) return null;
+    var r1 = function (x) { return Math.round(x * 10) / 10; };
+    return {
+      weight: w,
+      diazepam: [r1(0.1 * w), r1(0.2 * w)],
+      phenytoin: [Math.round(15 * w), Math.round(20 * w)],
+      mannitol: [r1(0.25 * w), r1(1 * w)],
+      ketamineIv: [r1(0.1 * w), r1(0.3 * w)],
+      ketamineIm: [r1(1 * w), r1(3 * w)],
+      fentanyl: [Math.round(1 * w), Math.round(2 * w)],
+      noradrenalin: [r1(0.1 * w), r1(1.0 * w)],
+      dobutamin: [r1(2 * w), r1(20 * w)],
+      tv: [Math.round(4 * w), Math.round(6 * w)],
+    };
+  }
+
+  var api = { evaluate: evaluate, gcs: gcs, riskGroup: riskGroup, ctIndication: ctIndication, special: special, bpTargets: bpTargets, doses: doses, HIGH: HIGH, MODERATE: MODERATE, NONTRAUMA: NONTRAUMA };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.HeadInjuryLogic = api;
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+  <script>
+/*
+ * Referencia-tartalom – „Intracranialis vérzések sürgősségi kezelése” SOP (ÉPC-HK SBC, 17., v1.0), tömörítve.
+ */
+(function (root) {
+  'use strict';
+
+  var SOP = {
+    number: '17',
+    title: 'Intracranialis vérzések sürgősségi kezelése',
+    issuer: 'ÉPC-HK SBC',
+    version: 'v1.0, 2024.04.25.',
+    validUntil: '2025-12-31',
+  };
+
+  // 2. melléklet – Tájékoztató koponyasérültek részére (tartalmi összefoglaló)
+  var LEAFLET_WARNINGS = [
+    'aluszékonyság (magára hagyva könnyen elalszik, nehezen vagy nem ébreszthető)',
+    'megváltozott viselkedés, fokozódó fejfájás, beszédzavar',
+    'kar- vagy lábgyengeség, érzészavar, zsibbadás',
+    'ismétlődő hányás',
+    'pupillatágulat, a pupilla fényre nem szűkül',
+    'epilepsziás vagy más görcsös rángások',
+    'a sérülés helyén gyorsan növő dudor',
+    'vízszerű vagy véres, szalmasárga váladék a fülből vagy orrból',
+  ];
+
+  var REFERENCE = [
+    {
+      id: 'groups', title: 'Ellátási csoportok, tünettan (2–3.)',
+      html:
+        '<p><b>1. csoport – traumás fejsérültek:</b> emittálható lesz (alacsony/közepes kockázat), illetve osztályra vagy műtőbe kerül (közepes/magas kockázat).</p>' +
+        '<p><b>2. csoport – nem traumás intracranialis vérzés:</b></p><ul>' +
+        '<li><b>ICH (hypertoniás, törzsdúci):</b> szinte kizárólag stroke-centrumba. Gyakori.</li>' +
+        '<li><b>Lobáris vérzés:</b> további kivizsgálás (CT-angio, esetleg halasztott DSA), majd SBO fektető / idegsebészet, esetleg területi neurológia; ritkán műtét.</li>' +
+        '<li><b>Nem traumás SAV:</b> neuroendovascularis ellátás előzetes referálás után hétköznap 24 órában intézményünkben; ha ez nem lehetséges, vagy hétvégén, az idegsebész az OMIII-ba referálja.</li></ul>' +
+        '<p><b>Tünetek:</b> tudatszint-változás (~50%), hirtelen erős fejfájás (~40%), hányinger/hányás (40–50%), emelkedett vérnyomás (~90%), roham (6–7%), féloldali gyengeség/zsibbadás, oldalra fixált tekintet, egyensúly-/koordinációzavar, beszéd- és megértési zavar, trauma az anamnézisben.</p>',
+    },
+    {
+      id: 'risk', title: 'Fejsérültek rizikócsoportjai (4.)',
+      html:
+        '<p><b>Alacsony:</b> tünetmentes, legfeljebb fejfájás, szédülés; nincs közepes vagy magas kockázati kritérium.</p>' +
+        '<p><b>Közepes:</b> bizonyítható eszméletvesztés; progresszív vagy elviselhetetlen fejfájás, zavartság, nyugtalanság; alkohol-/drogintoxikáció; epilepsziás görcs; megbízhatatlan vagy nem nyerhető anamnézis; <2 vagy >70 év (kivéve teljesen jelentéktelen sérülés); ≥2 hányás; poszttraumás amnézia; koponyaalapi törés jelei; ismételt trauma; impressziós törés gyanúja; bántalmazás gyanúja; nagy subgalealis vérzés; antikoaguláns / TAG-gátló / dekompenzált májbetegség / coagulopathia; ismeretlen eredetű fokális tünet; változó korú külsérelmek; koponyatörés RTG-jelei.</p>' +
+        '<p><b>Magas:</b> GCS ≤12; neurológiai kórjelek (aluszékony/soporosus betegnél anisocoria, durva végtaggyengeség, epilepsziás rosszullét); progresszív tudatzavar; penetráló/impressziós koponyasérülés, súlyos maxillofacialis sérülés; a mechanizmus vagy a külsérelem alapján valószínű intracranialis sérülés; ATLS-kritériumok (eszméletlen; >2 m / testmagasság feletti esés; járműből kirepült; nagy sebességű ütközés: gyalogos >5 km/h, motoros >30 km/h, személygépkocsi >60 km/h; karosszéria-deformitás; elhunyt a járműben; légzsák nyílt).</p>',
+    },
+    {
+      id: 'ct', title: 'Képalkotás (7.)',
+      html:
+        '<p>Gold standard: <b>non-contrast koponya CT</b>. Minden legalább közepes kockázatú fejsérültnél CT. Magas kockázatnál kiegészítés legalább CI–CII, optimálisan CI–ThI szegmentummal. SAV esetén még a CT-vizsgálóban idegsebészeti/radiológiai konzultáció a CTA-ról.</p>' +
+        '<p><b>CT 1 órán belül:</b> GCS ≤12 kezdetben; GCS <15 a sérülés után 2 órával; nyílt vagy impressziós törés gyanúja; koponyaalapi törés jele (haemotympanum, pápaszem-haematoma, liquorrhoea); poszttraumás roham; fokális neurológiai deficit; >1 hányás.</p>' +
+        '<p><b>CT 8 órán belül</b> (vagy 1 órán belül, ha a felvételkor már >8 óra telt el), ha eszméletvesztés vagy amnézia volt <u>és</u>: ≥65 év; vérzési/véralvadási zavar; veszélyes mechanizmus (elütött gyalogos/kerékpáros, járműből kiesett, >1 m vagy 5 lépcsőfok); >30 perces retrográd amnézia.</p>' +
+        '<p><b>Nyaki gerinc CT is:</b> GCS ≤12; intubált beteg; sürgős definitív diagnózis szükséges; éber, stabil betegnél a fejet és mellkast/hasat/medencét érintő tompa polytrauma; klinikai gyanú és ≥65 év / veszélyes mechanizmus / fokális perifériás deficit / paresztézia / intoxikáció.</p>' +
+        '<p><b>Sürgős ismételt CT:</b> klinikai állapot vagy tudatszint romlásakor (GCS-sel dokumentálva).</p>',
+    },
+    {
+      id: 'golden', title: 'Sürgősségi ellátás – aranyóra (5.)',
+      html:
+        '<p><b>AB:</b> célzott O₂, cél SpO₂ 90–94% (<90% esetén mindenképp). Közepes és magas kockázatnál legalább orrszonda már a CT előtt. GCS <8 vagy gyorsan romló tudat → emelt szintű légútbiztosítás (RSI, váltásvezetővel egyeztetve). Lélegeztetés: TV 4–6 ml/ttkg, PEEP 5–7 vízcm, FiO₂ 0,4–0,6, SpO₂ >94%, PaO₂ 60–100, PaCO₂ 35–40 Hgmm, laktát <2,2 mmol/l.</p>' +
+        '<p><b>C – hypotonia</b> (RRsys <90 vagy 40 Hgmm-es esés legalább 15 percig): 250–500 ml iv. krisztalloid 15–30 perc alatt; max. 500 ml után is fennálló hypotoniánál vasopressor: noradrenalin 0,1–1,0 µg/kg/perc, második választás dobutamin 2–20 µg/kg/perc.</p>' +
+        '<p><b>C – hypertonia:</b> 150–220 Hgmm szisztolés között, kontraindikáció nélkül 140 Hgmm alá; 220 Hgmm felett folyamatos iv. szerrel, monitorozva. Labetalol 10–20 mg bolus 1–2 perc alatt (kétszer ismételhető, max. hatás 5–10 perc), majd infúzió 1 mg/perc (max. 6 mg/perc). Labetalol-kontraindikáció (tüdőoedema, asthma, bradycardia, allergia, ritmuszavar) esetén urapidil 5 mg-os frakciókban, majd 9–30 mg/óra perfúzorral. Cél: 220/120 Hgmm alá; az első órában a szisztolés csökkenés ne legyen több a kezdeti érték 15%-ánál. Intubált betegnél előbb a megfelelő szedáció.</p>' +
+        '<p><b>D:</b> pontos GCS, pupillák és bulbusok, oldaliság, testfélaszimmetria, beszédzavar dokumentálása. Vércukor-cél 4,4–6,1 mmol/l.</p>' +
+        '<p><b>E:</b> EKG (pitvarfibrilláció → antikoaguláció?), AVGA, testhőmérséklet; POCUS csak gyakorlott kézben.</p>',
+    },
+    {
+      id: 'adjunct', title: 'Labor és kiegészítő terápia (6., 8., 10.)',
+      html:
+        '<p><b>Labor:</b> ionok, vese- és májfunkció, vérkép, vércsoport és ellenanyagszűrés, alvadás (INR, APTI, TI, TCT, fibrinogén); vérgáz, laktát, sav-bázis artériás vérből. <b>K-vitamin-antagonistát szedőnél INR kötelező.</b> Dinamikus tesztek (ClotPro) a gyakorlatban jobban használhatók.</p>' +
+        '<p><b>Antikoaguláció felfüggesztése:</b> lásd ClotPro eljárásrend.</p>' +
+        '<p><b>Láz:</b> kezelendő. <b>Vércukor:</b> 4,4–6,1 mmol/l.</p>' +
+        '<p><b>Epilepsziás roham:</b> 1. diazepam 0,1–0,2 mg/ttkg; 2. levetiracetam 250 mg iv. bolus, fennálló rohamnál újabb 250 mg-mal 1500 mg összdózisig; 3. fenitoin 15–20 mg/ttkg vagy levetiracetam (ha még nem kapott).</p>' +
+        '<p><b>Ozmoterápia:</b> mannitol 0,25–1 g/ttkg, elsőként refrakter esetben ICP-monitorozás mellett (ICP-cél <22 Hgmm); szérum-ozmolaritás >315 mmol/l kerülendő. ICP-monitorozás nélkül csak beékelődési jeleknél (GCS motoros 2–3, anisocoria vagy kétoldali fénymerev tág pupilla, extenziós tónusfokozódás). <b>Szteroid nem ajánlott.</b></p>' +
+        '<p><b>Fájdalomcsillapítás:</b> NSAID nem javasolt (TAG-gátló hatás), kivétel a paracetamol. Ketamin 0,1–0,3 mg/kg lassú iv. bolus vagy 1–3 mg/kg im.; fentanyl 1–2 µg/ttkg.</p>',
+    },
+    {
+      id: 'obs', title: 'Obszerváció, diszpozíció, speciális csoportok (11–13.)',
+      html:
+        '<p><b>Igazolt IC vérzés:</b> idegsebészeti konzílium után a fektető részlegen obszerválandó, ha nem kerül azonnal ITO-ra vagy műtőbe.</p>' +
+        '<p><b>Megfigyelés minimuma:</b> GCS, pupilla mérete és reakciója, végtagmozgások, légzésszám, pulzus, RR, hőmérséklet, SpO₂. Félóránként a 15-ös GCS eléréséig, majd 6 órán át óránként, utána 2 óránként.</p>' +
+        '<p><b>Sürgős újraértékelés (és CT):</b> izgatottság, rendellenes viselkedés; legalább 30 percig tartó 1 pontos GCS-csökkenés (különösen motoros); ≥3 pont csökkenés a szemnyitási vagy verbális, ≥2 pont a motoros pontszámban; súlyos vagy fokozódó fejfájás, tartós hányás; új neurológiai jel (pupilla-egyenlőtlenség, végtag/arc aszimmetria). Egyébként kontroll CT az első vizsgálat után 12 órával.</p>' +
+        '<p><b>Hospitalizáció:</b> új, klinikailag fontos képalkotó eltérés; a GCS nem tér vissza 15-re / alapvonalra; folyamatos aggasztó tünetek; egyéb aggodalomra okot adó klinikum.</p>' +
+        '<p><b>Emisszió (CT nélkül vagy negatív CT után):</b> GCS 15 / alapvonal (CT-nél), nincs más felvételt indokoló tényező, biztonságos otthoni felügyelet. Minden fejsérült ambuláns lapjához csatolni kell a tájékoztatót, átadását az epikrízisben rögzíteni.</p>' +
+        '<p><b>Antikoagulált (VKA/NOAC), közepes kockázat, tünetmentes:</b> INR >1,4 → azonnali CT; pozitív → idegsebész + PCC; negatív → 12 órás obszerváció, majd emisszió, panasz esetén kontroll CT + rekonzílium. INR <1,4 → CT a trauma után 4 órával; pozitív → idegsebész; negatív → emisszió.</p>' +
+        '<p><b>TAG-gátló, közepes kockázat:</b> tünetmentes → CT 4 óra múlva (pozitív → idegsebész, negatív → emisszió). GCS <15, progresszív fejfájás, >2 hányás vagy elhúzódó amnézia → azonnali CT; negatív → 12 órás obszerváció, panasz esetén kontroll CT + rekonzílium.</p>',
+    },
+    {
+      id: 'leaflet', title: 'Tájékoztató koponyasérültek részére (2. melléklet)',
+      html:
+        '<p>Ön / hozzátartozója olyan koponyasérülést szenvedett, amely a vizsgálatok alapján könnyű / alacsony kockázatú, ezért fekvőbeteg-osztályos felvétele nem szükséges. Mivel ritkán a látszólag enyhe sérülésnek is lehet késői szövődménye (elsősorban lassan növő vérömleny), kérjük, tartsa be az alábbiakat.</p>' +
+        '<p><b>Haladéktalanul keresse fel ismét az ambulanciát, ha:</b></p><ol>' + LEAFLET_WARNINGS.map(function (w) { return '<li>' + w + '</li>'; }).join('') + '</ol>' +
+        '<p>24 órán át ne vegyen be paracetamolnál erősebb fájdalomcsillapítót. Ne szedjen nem-szteroid gyulladáscsökkentőt, vérhígító szert, ne fogyasszon alkoholt, néhány napig kerülje a szellemi/fizikai terhelést. Ambuláns leleteivel mielőbb keresse fel háziorvosát.</p>',
+    },
+    {
+      id: 'sources', title: 'Források',
+      html:
+        '<ul><li>ÉPC-HK SBC: Intracranialis vérzések sürgősségi kezelése, SOP 17., v1.0 (2024.04.25.) – az app döntési fája ezen alapul.</li>' +
+        '<li>Az SOP irodalma: Canadian Stroke Best Practices – Emergency Management of ICH; NICE: Head injury: assessment and early management (2023); IJERPH 2022;19:14311 (ismételt CT enyhe TBI-ben).</li>' +
+        '<li>A súlyalapú dózisok és a vérnyomás-célérték számítása az SOP-ban megadott értékekből történik (mg/ttkg, µg/kg/perc, 15%).</li></ul>',
+    },
+  ];
+
+  var api = { SOP: SOP, REFERENCE: REFERENCE, LEAFLET_WARNINGS: LEAFLET_WARNINGS };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.HeadInjuryContent = api;
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+  <script>
+/*
+ * Ambuláns lapba illeszthető szövegrészek – fejsérülés / intracranialis vérzés.
+ * Elv: csak a megadott adatokból állít; „negál” csak kifejezett nemleges válasznál; hiány helyén „___”.
+ */
+(function (root) {
+  'use strict';
+
+  var SBO = root.SBO || (typeof require === 'function' ? require('../../js/core/registry.js') : null);
+  var T = SBO.text;
+  var B = T.BLANK;
+
+  var PUP = { eq: 'Pupillák egyenlők, fényre jól reagálnak.', aniso: 'Anisocoria.', fixed: 'Fénymerev, tág pupilla(k).' };
+  var CTTYPE = { 'ct.edh': 'epiduralis vérzés', 'ct.sdh': 'subduralis vérzés', 'ct.sah': 'subarachnoidealis vérzés', 'ct.iph': 'intraparenchymalis vérzés / contusio', 'ct.ivh': 'intraventricularis vérzés', 'ct.fx': 'koponyatörés' };
+
+  function gcsText(s, r) {
+    var g = r.gcs;
+    return g && g.complete ? 'GCS: ' + g.total + ' (E' + g.e + ' V' + g.v + ' M' + g.m + ')' : 'GCS: ' + B;
+  }
+
+  function complaint(s) {
+    var t = [];
+    if (s.etiology === 'nontrauma') {
+      t.push('Panaszai kezdete: ' + T.or(T.val(s, 'hx.onset')) + '.');
+      if (T.val(s, 'hx.symptoms')) t.push(T.cap(T.val(s, 'hx.symptoms')) + '.');
+      if (s['sp.anticoag'] === 'vka' || s['sp.anticoag'] === 'noac') t.push('Antikoaguláns terápiában részesül (' + (s['sp.anticoag'] === 'vka' ? 'K-vitamin-antagonista' : 'NOAC') + (T.val(s, 'ac.drug') ? ': ' + T.val(s, 'ac.drug') : '') + ').');
+      return t.join(' ');
+    }
+    var first = (T.val(s, 'inj.time') ? T.val(s, 'inj.time') + ' ' : '') + (T.val(s, 'inj.mech') ? T.val(s, 'inj.mech') + ' következtében elszenvedett ' : '') + 'fejsérülés miatt jelentkezett.';
+    t.push(T.cap(first));
+    if (s['mr.loc']) t.push('Eszméletvesztése volt.');
+    else if (s['loc.no'] === 'yes') t.push('Eszméletvesztése nem volt.');
+    if (s['mr.pta']) t.push('Poszttraumás amnézia áll fenn.');
+    var v = Number(s['vomit.n'] || 0);
+    if (v > 0) t.push(v + ' alkalommal hányt.');
+    else if (s['vomit.n'] === '0') t.push('Hányása nem volt.');
+    if (s['mr.headache']) t.push('Progresszív / elviselhetetlen fejfájást, zavartságot jelez.');
+    if (s['mr.seizure']) t.push('Epilepsziás görcs / arra utaló adat.');
+    if (s['mr.intox']) t.push('Alkohol- / drogintoxikáció felmerül.');
+    if (s['sp.anticoag'] === 'vka' || s['sp.anticoag'] === 'noac') t.push('Antikoaguláns terápiában részesül (' + (s['sp.anticoag'] === 'vka' ? 'K-vitamin-antagonista' : 'NOAC') + (T.val(s, 'ac.drug') ? ': ' + T.val(s, 'ac.drug') : '') + ').');
+    else if (s['sp.anticoag'] === 'none') t.push('Antikoagulánst nem szed.');
+    if (s['sp.tag'] === 'yes') t.push('Thrombocytaaggregáció-gátlót szed' + (T.val(s, 'tag.drug') ? ' (' + T.val(s, 'tag.drug') + ')' : '') + '.');
+    else if (s['sp.tag'] === 'no') t.push('Thrombocytaaggregáció-gátlót nem szed.');
+    return t.join(' ');
+  }
+
+  function status(s, r) {
+    var L = [T.vitalsLine(s)];
+    var d = [gcsText(s, r) + '.'];
+    if (s.pupils) d.push(PUP[s.pupils]);
+    if (s['mr.focal'] || s['hr.neuro']) d.push('Fokális neurológiai jel: ' + B + '.');
+    else if (s['neuro.nofocal'] === 'yes') d.push('Durva neurológiai gócjel nem észlelhető.');
+    L.push(d.join(' '));
+    if (T.val(s, 'inj.wound')) L.push('Külsérelmi nyom: ' + T.val(s, 'inj.wound') + '.');
+    if (s['mr.basal']) L.push('Koponyaalapi törés fizikális jele: ' + B + '.');
+    if (T.val(s, 'inr')) L.push('INR: ' + T.val(s, 'inr'));
+    L.push('Labor: ' + T.or(T.val(s, 'lab.text')));
+    return L.join('\n');
+  }
+
+  function imaging(s) {
+    if (!s['ct.result']) return 'Koponya CT: ' + B;
+    if (s['ct.result'] === 'neg') return 'Non-contrast koponya CT: intracranialis vérzés, traumás eltérés nem ábrázolódott.' + (T.val(s, 'ct.text') ? ' ' + T.val(s, 'ct.text') : '');
+    var types = Object.keys(CTTYPE).filter(function (k) { return s[k]; }).map(function (k) { return CTTYPE[k]; });
+    return 'Non-contrast koponya CT: ' + (types.length ? types.join(', ') : 'intracranialis vérzés / traumás eltérés') + ' ábrázolódott.' + (T.val(s, 'ct.text') ? ' ' + T.val(s, 'ct.text') : ' Részletek: ' + B + '.');
+  }
+
+  function epicrisis(s, r) {
+    var t = [];
+    if (s.etiology === 'nontrauma') {
+      t.push('A fentebb részletezett anamnézisű beteget intracranialis vérzés miatt vizsgáltuk ambulanciánkon.');
+      t.push(imaging(s));
+      if (r.workingDx.length) t.push('A CT alapján ' + r.workingDx[0].text.charAt(0).toLowerCase() + r.workingDx[0].text.slice(1) + ' igazolódott.');
+      if (s['nt.large'] === 'yes') t.push('Nagyméretű / sebészileg hozzáférhető vérzés, illetve hydrocephalus miatt idegsebészeti konzultáció történt: ' + B + '.');
+      t.push('További ellátása: ' + (r.disposition.length ? r.disposition.map(function (d) { return d.text; }).join(' ') : B) + ' Elhelyezés: ' + B + '.');
+      return t.join(' ');
+    }
+    t.push('Mai napon fejsérülés miatt jelentkezett ambulanciánkon.');
+    if (r.risk && r.risk.level) t.push('Az SOP szerinti besorolás alapján ' + { low: 'alacsony', moderate: 'közepes', high: 'magas' }[r.risk.level] + ' kockázatú fejsérült.');
+    if (s.critical === 'no') t.push('Vizsgálóba érkezéskor cardiorespiratorikusan stabil.');
+    if (s['ct.result']) t.push(imaging(s));
+    else if (r.risk && r.risk.level === 'low') t.push('Alacsony kockázatú sérülés miatt koponya CT nem volt indokolt.');
+    if (s['ct.result'] === 'pos') {
+      t.push('Idegsebészeti konzílium véleménye: ' + T.or(T.val(s, 'ns.text')) + '.');
+      var dec = { op: 'műtőbe kerül', ito: 'intenzív osztályra kerül', obs: 'SBO fektető részlegen obszerváljuk', other: 'elhelyezése egyeztetés alatt' }[s['ns.decision']];
+      t.push(dec ? 'A konzílium alapján ' + dec + '.' : 'Elhelyezés: ' + B + '.');
+      return t.join(' ');
+    }
+    if (r.special && r.special.obs12 && s['obs.result'] === 'free') t.push('12 órás obszervációnk során a beteg cardiorespiratorikusan mindvégig stabil és panaszmentes volt.');
+    else if (r.risk && r.risk.level === 'high' && r.discharge) t.push('Obszervációnk során a beteg cardiorespiratorikusan mindvégig stabil, tünetei megszűntek.');
+    if (r.discharge) {
+      t.push('További akut teendő hiányában, jó általános állapotban otthonába bocsátjuk.');
+      t.push(s['leaflet.given'] ? 'A fejsérülteknek szóló tájékoztatót megkapta.' : 'Fejsérülteknek szóló tájékoztató átadása: ' + B + '.');
+    } else if (r.disposition.length) {
+      t.push('További ellátása: ' + r.disposition.map(function (d) { return d.text; }).join(' '));
+    }
+    return t.join(' ');
+  }
+
+  function advice(s, r) {
+    var J = [];
+    if (s.etiology === 'trauma' && r.discharge) {
+      J.push('Következő 48 órában ne maradjon egyedül, felügyelete biztosított legyen.');
+      var anticoag = s['sp.anticoag'] === 'vka' || s['sp.anticoag'] === 'noac' || s['sp.tag'] === 'yes';
+      J.push('24 órán át paracetamolnál erősebb fájdalomcsillapítót ne vegyen be; nem-szteroid gyulladáscsökkentőt ne szedjen' +
+        (anticoag ? '' : ', vérhígító szert ne szedjen') + ', alkoholt ne fogyasszon, néhány napig kerülje a szellemi / fizikai terhelést.');
+      // Antikoagulált / TAG-gátlót szedő betegnél a tájékoztató általános tanácsa nem alkalmazható automatikusan
+      if (anticoag) J.push('Alvadásgátló / thrombocytaaggregáció-gátló gyógyszerének további szedése: ' + B + '.');
+      J.push('Haladéktalanul jelentkezzen ismét, ha: ' + (root.HeadInjuryContent || (typeof require === 'function' ? require('./content.js') : { LEAFLET_WARNINGS: [] })).LEAFLET_WARNINGS.join('; ') + '.');
+      J.push('Ambuláns leleteivel mielőbb keresse fel háziorvosát.');
+    } else {
+      J.push('Az idegsebészeti konzílium / fogadó osztály javaslata szerint: ' + B + '.');
+    }
+    return J.map(function (j) { return '- ' + j; }).join('\n');
+  }
+
+  // BNO-10 javaslat (WHO ICD-10) – ellenőrizendő
+  function bno(s, r) {
+    var out = [];
+    if (s.etiology === 'nontrauma') {
+      if (s['nt.type'] === 'deep') out.push('I61.0 Agyvérzés a féltekében, subcorticalis');
+      if (s['nt.type'] === 'lobar') out.push('I61.1 Agyvérzés a féltekében, corticalis');
+      if (s['nt.type'] === 'sah') out.push('I60.9 Subarachnoidealis vérzés, k.m.n.');
+      return out;
+    }
+    if (s['ct.result'] === 'pos') {
+      if (s['ct.edh']) out.push('S06.4 Epiduralis vérzés');
+      if (s['ct.sdh']) out.push('S06.5 Traumás subduralis vérzés');
+      if (s['ct.sah']) out.push('S06.6 Traumás subarachnoidealis vérzés');
+      if (s['ct.iph']) out.push('S06.3 Körülírt agysérülés');
+    }
+    if (!out.length && s.etiology === 'trauma') out.push(s['mr.loc'] ? 'S06.0 Agyrázkódás' : 'S09.9 A fej k.m.n. sérülése');
+    return out;
+  }
+
+  function diagnosis(s, r) {
+    var dx = r.workingDx.map(function (d) { return d.text; });
+    var b = bno(s, r);
+    return (dx.length ? dx.join('; ') : B) + (b.length ? '\nBNO-javaslat (ellenőrizendő): ' + b.join(', ') : '');
+  }
+
+  function sections(s, r) {
+    s = s || {};
+    return [
+      { id: 'complaint', title: 'Jelen panasz', text: complaint(s) },
+      { id: 'status', title: 'Status', text: status(s, r) },
+      { id: 'imaging', title: 'Képalkotás', text: imaging(s) },
+      { id: 'epicrisis', title: 'Epikrízis', text: epicrisis(s, r) },
+      { id: 'dx', title: 'Diagnózis', text: diagnosis(s, r) },
+      { id: 'advice', title: 'Javaslat', text: advice(s, r) },
+    ];
+  }
+
+  var api = { sections: sections, bno: bno };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.HeadInjuryDocs = api;
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+  <script>
+/*
+ * Eljárásrend-modul: „Intracranialis vérzések sürgősségi kezelése” (ÉPC-HK SBC SOP 17, v1.0).
+ * Függ: SBO, HeadInjuryLogic, HeadInjuryContent, HeadInjuryDocs.
+ */
+(function () {
+  'use strict';
+
+  var L = window.HeadInjuryLogic;
+  var C = window.HeadInjuryContent;
+  var D = window.HeadInjuryDocs;
+
+  var trauma = function (s) { return s.etiology === 'trauma'; };
+  var GCS_E = [{ v: '4', l: '4 – spontán' }, { v: '3', l: '3 – felszólításra' }, { v: '2', l: '2 – fájdalomra' }, { v: '1', l: '1 – nincs' }];
+  var GCS_V = [{ v: '5', l: '5 – orientált' }, { v: '4', l: '4 – zavart' }, { v: '3', l: '3 – nem odaillő szavak' }, { v: '2', l: '2 – érthetetlen hangok' }, { v: '1', l: '1 – nincs' }];
+  var GCS_M = [{ v: '6', l: '6 – utasítást követ' }, { v: '5', l: '5 – lokalizál' }, { v: '4', l: '4 – elhárít' }, { v: '3', l: '3 – kóros flexió' }, { v: '2', l: '2 – extenzió' }, { v: '1', l: '1 – nincs' }];
+
+  function checks(map) {
+    return Object.keys(map).map(function (k) { return { type: 'check', key: k, label: map[k] }; });
+  }
+
+  var STEPS = [
+    {
+      id: 'start', title: 'Beteg, etiológia, ABCDE', ref: 'SOP 2., 5.',
+      fields: [
+        { type: 'choice', key: 'etiology', label: 'Milyen esetről van szó?', options: [
+          { v: 'trauma', l: 'Traumás fejsérülés' }, { v: 'nontrauma', l: 'Nem traumás intracranialis vérzés (igazolt / gyanú)' }] },
+        { type: 'yn', key: 'critical', label: 'Kritikus állapotú (ABCDE-ben instabil) a beteg?' },
+        { type: 'note', level: 'danger', when: function (s) { return s.critical === 'yes'; }, html: 'Vizsgálat és ellátás <b>ABCDE</b> szerint; monitorozás (légzés, SpO₂, pulzus/EKG, RR). A célértékeket és a gyógyszereket az <b>Aranyóra</b> lépés tartalmazza.' },
+        { type: 'num', key: 'pt.age', label: 'Életkor (év)' },
+      ].concat(SBO.fields.vitals(), [
+        { type: 'heading', label: 'GCS' },
+        { type: 'choice', key: 'gcs.e', label: 'Szemnyitás (E)', options: GCS_E },
+        { type: 'choice', key: 'gcs.v', label: 'Verbális válasz (V)', options: GCS_V },
+        { type: 'choice', key: 'gcs.m', label: 'Motoros válasz (M)', options: GCS_M },
+        { type: 'widget', name: 'gcs' },
+        { type: 'choice', key: 'pupils', label: 'Pupillák', options: [{ v: 'eq', l: 'Egyenlők, reagálnak' }, { v: 'aniso', l: 'Anisocoria' }, { v: 'fixed', l: 'Fénymerev, tág' }] },
+        { type: 'heading', label: 'Alvadásgátlás' },
+        { type: 'choice', key: 'sp.anticoag', label: 'Antikoaguláns', options: [{ v: 'none', l: 'Nem szed' }, { v: 'vka', l: 'K-vitamin-antagonista' }, { v: 'noac', l: 'NOAC' }] },
+        { type: 'text', key: 'ac.drug', label: 'Készítmény, dózis', when: function (s) { return s['sp.anticoag'] === 'vka' || s['sp.anticoag'] === 'noac'; } },
+        { type: 'num', key: 'inr', label: 'INR', when: function (s) { return s['sp.anticoag'] === 'vka' || s['sp.anticoag'] === 'noac'; } },
+        { type: 'yn', key: 'sp.tag', label: 'Thrombocytaaggregáció-gátlót szed?' },
+        { type: 'text', key: 'tag.drug', label: 'Készítmény', when: function (s) { return s['sp.tag'] === 'yes'; } },
+      ]),
+    },
+    {
+      id: 'nontrauma', title: 'Nem traumás vérzés', ref: 'SOP 2., 7., 9.',
+      fields: [
+        { type: 'text', key: 'hx.onset', label: 'Panaszok kezdete' },
+        { type: 'text', key: 'hx.symptoms', label: 'Tünetek (pl. hirtelen erős fejfájás, hányás, féloldali gyengeség, beszédzavar)' },
+        { type: 'choice', key: 'nt.type', label: 'A vérzés típusa (CT alapján)', options: [
+          { v: 'deep', l: 'Hypertoniás, törzsdúci ICH' }, { v: 'lobar', l: 'Lobáris vérzés' }, { v: 'sah', l: 'Nem traumás SAV' }] },
+        { type: 'yn', key: 'nt.large', label: 'Nagyméretű, sebészileg hozzáférhető ICH vagy obstruktív hydrocephalus?' },
+        { type: 'textarea', key: 'ct.text', label: 'CT lelet (epikrízisbe)' },
+      ],
+    },
+    {
+      id: 'risk', title: 'Rizikócsoport', ref: 'SOP 4.',
+      fields: [
+        { type: 'heading', label: 'Magas kockázati kritériumok' },
+        { type: 'note', level: 'info', html: 'A GCS ≤12 automatikusan magas kockázatot jelent (az első lépésben megadott GCS alapján).' },
+      ].concat(checks(L.HIGH), [
+        { type: 'heading', label: 'Közepes kockázati kritériumok' },
+        { type: 'num', key: 'vomit.n', label: 'Hányások száma (0, ha nem hányt)' },
+      ], checks(L.MODERATE), [
+        { type: 'check', key: 'mr.trivial', label: '<2 vagy >70 éves, de teljesen jelentéktelen sérülés (az életkor ekkor nem számít kritériumnak)', when: function (s) { var a = Number(s['pt.age']); return s['pt.age'] && (a < 2 || a > 70); } },
+        { type: 'heading', label: 'Alacsony kockázat' },
+        { type: 'check', key: 'risk.none', label: 'Áttekintettem: egyik közepes vagy magas kockázati kritérium sem áll fenn (tünetmentes, legfeljebb fejfájás, szédülés)' },
+        { type: 'widget', name: 'risk' },
+      ]),
+    },
+    {
+      id: 'ct', title: 'CT-indikáció és időzítés', ref: 'SOP 7., 13.',
+      fields: [
+        { type: 'heading', label: 'Kiegészítő CT-kritériumok' },
+        { type: 'yn', key: 'ct.gcs2h', label: 'GCS <15 a sérülés után 2 órával?' },
+        { type: 'note', level: 'info', html: 'Az alábbiak csak akkor számítanak, ha eszméletvesztés vagy amnézia volt (8 órás CT-szabály).' },
+        { type: 'check', key: 'ct.dangerous', label: 'Veszélyes mechanizmus (elütött gyalogos/kerékpáros, járműből kiesett, >1 m vagy 5 lépcsőfok)' },
+        { type: 'check', key: 'ct.retro', label: '>30 perces retrográd amnézia' },
+        { type: 'check', key: 'ct.over8h', label: 'A felvételkor a sérülés óta már több mint 8 óra telt el' },
+        { type: 'heading', label: 'TAG-gátlót szedő betegnél', when: function (s) { return s['sp.tag'] === 'yes'; } },
+        { type: 'check', key: 'sp.amnesia', label: 'Elhúzódó amnézia', when: function (s) { return s['sp.tag'] === 'yes'; } },
+        { type: 'heading', label: 'Nyaki gerinc CT kritériumai' },
+        { type: 'check', key: 'cs.intubated', label: 'Intubált beteg' },
+        { type: 'check', key: 'cs.urgent', label: 'A nyaki gerinc sérülésének sürgős definitív diagnózisa szükséges (pl. műtét, érzéstelenítés)' },
+        { type: 'check', key: 'cs.polytrauma', label: 'Éber, stabil beteg, a fejet és a mellkast/hasat/medencét is érintő tompa polytrauma' },
+        { type: 'check', key: 'cs.suspicion', label: 'A nyaki gerinc sérülésének klinikai gyanúja' },
+        { type: 'check', key: 'cs.mech', label: '… és veszélyes mechanizmus (>1 m / 5 lépcsőfok, tengelyirányú terhelés, nagy sebességű ütközés, motorbaleset, kilökődés, kerékpáros ütközés)', when: function (s) { return s['cs.suspicion']; } },
+        { type: 'check', key: 'cs.focal', label: '… és fokális perifériás neurológiai deficit', when: function (s) { return s['cs.suspicion']; } },
+        { type: 'check', key: 'cs.paresth', label: '… és paresztézia a felső vagy alsó végtagokban', when: function (s) { return s['cs.suspicion']; } },
+        { type: 'widget', name: 'ct' },
+      ],
+    },
+    {
+      id: 'ctresult', title: 'CT eredmény', ref: '1. melléklet, SOP 9., 13.',
+      fields: [
+        { type: 'choice', key: 'ct.result', label: 'Non-contrast koponya CT', options: [{ v: 'neg', l: 'Negatív' }, { v: 'pos', l: 'Pozitív (IC vérzés / traumás eltérés)' }] },
+        { type: 'heading', label: 'Lelet', when: function (s) { return s['ct.result'] === 'pos'; } },
+        { type: 'check', key: 'ct.edh', label: 'Epiduralis vérzés', when: function (s) { return s['ct.result'] === 'pos'; } },
+        { type: 'check', key: 'ct.sdh', label: 'Subduralis vérzés', when: function (s) { return s['ct.result'] === 'pos'; } },
+        { type: 'check', key: 'ct.sah', label: 'Subarachnoidealis vérzés', when: function (s) { return s['ct.result'] === 'pos'; } },
+        { type: 'check', key: 'ct.iph', label: 'Intraparenchymalis vérzés / contusio', when: function (s) { return s['ct.result'] === 'pos'; } },
+        { type: 'check', key: 'ct.ivh', label: 'Intraventricularis vérzés', when: function (s) { return s['ct.result'] === 'pos'; } },
+        { type: 'check', key: 'ct.fx', label: 'Koponyatörés', when: function (s) { return s['ct.result'] === 'pos'; } },
+        { type: 'textarea', key: 'ct.text', label: 'CT lelet részletei (epikrízisbe)' },
+        { type: 'heading', label: 'Idegsebészeti konzílium', when: function (s) { return s['ct.result'] === 'pos'; } },
+        { type: 'text', key: 'ns.text', label: 'Konzílium véleménye', when: function (s) { return s['ct.result'] === 'pos'; } },
+        { type: 'choice', key: 'ns.decision', label: 'Elhelyezés', when: function (s) { return s['ct.result'] === 'pos'; }, options: [
+          { v: 'op', l: 'Műtő' }, { v: 'ito', l: 'ITO' }, { v: 'obs', l: 'Fektető – obszerváció' }, { v: 'other', l: 'Egyeztetés alatt / egyéb' }] },
+      ],
+    },
+    {
+      id: 'dispo', title: 'Obszerváció, diszpozíció', ref: 'SOP 11–13.',
+      fields: [
+        { type: 'choice', key: 'obs.result', label: '12 órás obszerváció eredménye', when: function (s, r) { return r.special && r.special.obs12 && s['ct.result'] === 'neg'; }, options: [
+          { v: 'free', l: 'Panaszmentes' }, { v: 'symptoms', l: 'Panasz jelentkezett' }] },
+        { type: 'heading', label: 'Hospitalizációs kritériumok (SOP 11.)' },
+        { type: 'check', key: 'adm.imaging', label: 'Új, klinikailag fontos eltérés a képalkotás során' },
+        { type: 'check', key: 'adm.gcs', label: 'A GCS nem tért vissza 15-re / a sérülés előtti alapvonalra' },
+        { type: 'check', key: 'adm.symptoms', label: 'Folyamatos aggasztó tünetek (tartós hányás, súlyos fejfájás, görcsroham)' },
+        { type: 'check', key: 'adm.other', label: 'Egyéb aggodalomra okot adó klinikum (intoxikáció, egyéb sérülés, sokk, nem véletlen sérülés gyanúja, meningitis, liquorcsorgás, fennálló PTA)' },
+        { type: 'heading', label: 'Emisszió feltételei (SOP 12.)' },
+        { type: 'yn', key: 'dc.gcs', label: 'A GCS visszatért 15-re / a sérülés előtti értékre?', when: function (s, r) { return !(r.ct && r.ct.indicated === false); } },
+        { type: 'yn', key: 'dc.noother', label: 'Nincs más felvételt indokoló tényező?' },
+        { type: 'yn', key: 'dc.supervision', label: 'Megfelelő otthoni felügyelet biztosított?' },
+        { type: 'heading', label: 'Neurológiai romlás jelei – sürgős újraértékelés és CT' },
+        { type: 'widget', name: 'deterioration' },
+      ],
+    },
+    {
+      id: 'treatment', title: 'Aranyóra – kezelés', ref: 'SOP 5., 10.',
+      fields: [
+        { type: 'num', key: 'wt', label: 'Testtömeg (kg) – a dózisok kiszámításához' },
+        { type: 'num', key: 'bp.sys', label: 'Kezdeti szisztolés vérnyomás (Hgmm) – a célérték kiszámításához' },
+        { type: 'widget', name: 'golden' },
+        { type: 'text', key: 'sbo.therapy', label: 'Az SBO-n alkalmazott terápia (epikrízisbe)' },
+      ],
+    },
+    {
+      id: 'summary', title: 'Összegzés / dokumentáció', ref: '',
+      fields: [
+        { type: 'heading', label: 'Az ambuláns laphoz' },
+        { type: 'text', key: 'inj.time', label: 'A sérülés ideje (pl. „ma 14 órakor”)', when: trauma },
+        { type: 'text', key: 'inj.mech', label: 'Mechanizmus (pl. „saját magasságból történt elesés”)', when: trauma },
+        { type: 'text', key: 'inj.wound', label: 'Külsérelmi nyom', when: trauma },
+        { type: 'yn', key: 'loc.no', label: 'Kifejezetten rákérdezve: eszméletvesztése NEM volt?', when: function (s) { return trauma(s) && !s['mr.loc']; } },
+        { type: 'yn', key: 'neuro.nofocal', label: 'Durva neurológiai gócjel nem észlelhető?', when: function (s) { return !s['mr.focal'] && !s['hr.neuro']; } },
+        { type: 'text', key: 'lab.text', label: 'Labor röviden' },
+        { type: 'check', key: 'leaflet.given', label: 'A fejsérülteknek szóló tájékoztatót átadtam (SOP 12. – az epikrízisben rögzíteni kell)', when: trauma },
+        { type: 'summary' },
+      ],
+    },
+  ];
+
+  function stepVisible(id, s, r) {
+    switch (id) {
+      case 'nontrauma': return s.etiology === 'nontrauma';
+      case 'risk': return s.etiology === 'trauma';
+      case 'ct': return s.etiology === 'trauma' && r.risk && (r.risk.level === 'moderate' || r.risk.level === 'high');
+      case 'ctresult': return s.etiology === 'trauma' && r.risk && (r.risk.level === 'moderate' || r.risk.level === 'high');
+      case 'dispo': return s.etiology === 'trauma' && r.risk && !!r.risk.level && s['ct.result'] !== 'pos';
+      default: return true;
+    }
+  }
+
+  function li(arr, esc) { return '<ul>' + arr.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>'; }
+
+  var widgets = {
+    gcs: {
+      render: function () { return ''; },
+      live: function (ctx) {
+        var g = ctx.r.gcs;
+        if (!g || !g.complete) return '<div class="note info">GCS: adja meg mindhárom komponenst.</div>';
+        var lvl = g.total <= 8 ? 'danger' : g.total <= 12 ? 'warn' : g.total < 15 ? 'info' : 'ok';
+        return '<div class="note ' + lvl + '"><b>GCS ' + g.total + '</b> (E' + g.e + ' V' + g.v + ' M' + g.m + ')' +
+          (g.total < 8 ? ' – emelt szintű légútbiztosítás javasolt (SOP 5.)' : g.total <= 12 ? ' – magas kockázat, CT 1 órán belül (SOP 4., 7.)' : '') + '</div>';
+      },
+    },
+    risk: {
+      render: function () { return ''; },
+      live: function (ctx) {
+        var r = ctx.r.risk;
+        if (!r || !r.level) return '<div class="note info">Jelöljön kritériumot, vagy erősítse meg, hogy egyik sem áll fenn.</div>';
+        var cls = { low: 'ok', moderate: 'warn', high: 'danger' }[r.level];
+        var t = { low: 'Alacsony kockázat', moderate: 'Közepes kockázat', high: 'Magas kockázat' }[r.level];
+        return '<div class="note ' + cls + '"><b>' + t + '</b>' + (r.high.length ? '<br>Magas: ' + r.high.map(ctx.esc).join('; ') : '') +
+          (r.moderate.length ? '<br>Közepes: ' + r.moderate.map(ctx.esc).join('; ') : '') + '</div>';
+      },
+    },
+    ct: {
+      render: function () { return ''; },
+      live: function (ctx) {
+        var ct = ctx.r.ct, sp = ctx.r.special;
+        if (!ct) return '';
+        var t = { '1h': 'CT 1 órán belül', '8h': 'CT a sérülést követő 8 órán belül', indicated: 'CT indokolt (legalább közepes kockázat)' }[ct.timing] || 'CT nem indokolt';
+        if (sp && sp.group === 'anticoag') t = sp.ctTiming === 'now' ? 'Azonnali CT (antikoagulált)' : sp.ctTiming === '4h' ? 'CT a trauma után 4 órával (antikoagulált, INR <1,4)' : 'Antikoagulált: adja meg az INR-t';
+        if (sp && sp.group === 'tag') t = sp.ctTiming === 'now' ? 'Azonnali CT (TAG-gátló, tünetes)' : 'CT a trauma után 4 órával (TAG-gátló, tünetmentes)';
+        var spWhy = [];
+        if (sp && sp.group === 'tag' && sp.reasons.length) spWhy.push('TAG-gátló + ' + sp.reasons.join(', ') + ' (SOP 13.2)');
+        if (sp && sp.group === 'anticoag' && sp.inr !== null) spWhy.push('INR ' + sp.inr + (sp.symptomatic ? ', 1 órás CT-kritérium áll fenn' : '') + ' (SOP 13.1)');
+        return '<div class="note ' + (ct.timing === '1h' || (sp && sp.ctTiming === 'now') ? 'danger' : 'warn') + '"><b>' + t + '</b>' +
+          li(spWhy.concat(ct.reasons), ctx.esc) +
+          (ct.highExtra ? '<div>Kiegészítés: legalább CI–CII, optimálisan CI–ThI.</div>' : '') +
+          (ct.cspine.length ? '<div><b>Nyaki gerinc CT is:</b>' + li(ct.cspine, ctx.esc) + '</div>' : '') + '</div>';
+      },
+    },
+    deterioration: {
+      render: function (ctx) {
+        return '<div class="note warn">' + li([
+          'Izgatottság vagy rendellenes viselkedés',
+          'Legalább 30 percig tartó 1 pontos GCS-csökkenés (különösen a motoros pontszámban)',
+          '≥3 pont csökkenés a szemnyitási vagy verbális, ≥2 pont a motoros pontszámban',
+          'Súlyos vagy fokozódó fejfájás, tartós hányás',
+          'Új neurológiai jel (pupilla-egyenlőtlenség, végtag- / arcmozgás aszimmetriája)',
+        ], ctx.esc) + 'Ilyenkor sürgős újraértékelés és ismételt CT; egyébként kontroll CT az első vizsgálat után 12 órával (SOP 11.).</div>';
+      },
+    },
+    golden: {
+      render: function () { return ''; },
+      live: function (ctx) {
+        var html = '';
+        var bp = L.bpTargets(ctx.state);
+        if (bp) {
+          var z = {
+            hypo: '<b>Hypotonia</b> (<90 Hgmm): 250–500 ml iv. krisztalloid 15–30 perc alatt; max. 500 ml után is fennálló hypotoniánál noradrenalin 0,1–1,0 µg/kg/perc (2. választás dobutamin 2–20 µg/kg/perc).',
+            '150-220': '<b>150–220 Hgmm:</b> kontraindikáció nélkül 140 Hgmm alá csökkentendő. Az első órában ne csökkenjen ' + bp.floor1h + ' Hgmm alá (max. 15%).',
+            over220: '<b>>220 Hgmm:</b> folyamatosan adagolt iv. szer, RR-monitorozás; cél 220/120 Hgmm alá. Az első órában ne csökkenjen ' + bp.floor1h + ' Hgmm alá (max. 15%).',
+            normal: 'Szisztolés ' + bp.sys + ' Hgmm: az SOP vérnyomáscsökkentést nem ír elő.',
+          }[bp.zone];
+          html += '<div class="note ' + (bp.zone === 'normal' ? 'info' : 'warn') + '">' + z +
+            (bp.zone === '150-220' || bp.zone === 'over220' ? '<br>Labetalol 10–20 mg bolus 1–2 perc alatt (kétszer ismételhető), majd 1 mg/perc infúzió (max. 6 mg/perc); kontraindikáció esetén urapidil 5 mg-os frakciókban, majd 9–30 mg/óra. Intubált betegnél előbb a szedáció.' : '') +
+            ' <span class="ref">SOP 5. C</span></div>';
+        }
+        var d = L.doses(ctx.state);
+        if (d) {
+          var row = function (n, v, u, ref) { return '<tr><td>' + n + '</td><td><b>' + v[0] + '–' + v[1] + ' ' + u + '</b></td><td class="ref">' + ref + '</td></tr>'; };
+          html += '<table class="ref-table"><thead><tr><th>Gyógyszer (' + d.weight + ' kg)</th><th>Dózis</th><th></th></tr></thead><tbody>' +
+            row('Diazepam (roham, 1. vonal) – 0,1–0,2 mg/ttkg', d.diazepam, 'mg', 'SOP 10.') +
+            '<tr><td>Levetiracetam (2. vonal)</td><td><b>250 mg iv. bolus</b>, ismételhető 250 mg-mal 1500 mg-ig</td><td class="ref">SOP 10.</td></tr>' +
+            row('Fenitoin (3. vonal) – 15–20 mg/ttkg', d.phenytoin, 'mg', 'SOP 10.') +
+            row('Mannitol – 0,25–1 g/ttkg', d.mannitol, 'g', 'SOP 10.') +
+            row('Ketamin iv. – 0,1–0,3 mg/kg', d.ketamineIv, 'mg', 'SOP 10.') +
+            row('Ketamin im. – 1–3 mg/kg', d.ketamineIm, 'mg', 'SOP 10.') +
+            row('Fentanyl – 1–2 µg/ttkg', d.fentanyl, 'µg', 'SOP 10.') +
+            row('Noradrenalin – 0,1–1,0 µg/kg/perc', d.noradrenalin, 'µg/perc', 'SOP 5.') +
+            row('Dobutamin – 2–20 µg/kg/perc', d.dobutamin, 'µg/perc', 'SOP 5.') +
+            row('Lélegeztetés: TV 4–6 ml/ttkg', d.tv, 'ml', 'SOP 5.') +
+            '</tbody></table><p class="ill-note">A dózisok az SOP-ban megadott testtömeg-arányos értékekből számolva; ellenőrizze alkalmazás előtt.</p>';
+        }
+        html += '<div class="note info"><b>Célértékek:</b> SpO₂ 90–94% (lélegeztetve >94%), PaO₂ 60–100, PaCO₂ 35–40 Hgmm, vércukor 4,4–6,1 mmol/l, szérum-ozmolaritás <315 mmol/l, láz kezelendő. <b>Szteroid nem ajánlott. NSAID nem javasolt</b> (kivéve paracetamol). Antikoaguláció felfüggesztése: ClotPro eljárásrend. <span class="ref">SOP 5., 8., 10.</span></div>';
+        return html;
+      },
+    },
+  };
+
+  SBO.register({
+    id: 'fejserules',
+    title: 'Fejsérülés, intracranialis vérzés',
+    short: 'Fejsérülés / IC vérzés',
+    description: 'Fejsérültek rizikócsoportja, CT-indikáció és időzítés, antikoagulált / TAG-gátlót szedő betegek, obszerváció, aranyóra, nem traumás ICH és SAV.',
+    sop: C.SOP,
+    steps: STEPS,
+    stepVisible: stepVisible,
+    stageToStep: { start: 'start', nontrauma: 'nontrauma', risk: 'risk', ct: 'ct', ctresult: 'ctresult', dispo: 'dispo', treatment: 'treatment', done: 'summary' },
+    evaluate: L.evaluate,
+    categories: {
+      LOW: 'Alacsony kockázatú fejsérült', MODERATE: 'Közepes kockázatú fejsérült', HIGH: 'Magas kockázatú fejsérült',
+      POSITIVE: 'CT-vel igazolt traumás intracranialis sérülés', NONTRAUMA: 'Nem traumás intracranialis vérzés',
+    },
+    dangerCategories: ['HIGH', 'POSITIVE', 'NONTRAUMA'],
+    widgets: widgets,
+    reportFindings: function (s, r) {
+      var lines = [];
+      if (r.gcs && r.gcs.complete) lines.push('GCS: ' + r.gcs.total + ' (E' + r.gcs.e + ' V' + r.gcs.v + ' M' + r.gcs.m + ')');
+      if (r.risk && r.risk.level) {
+        lines.push('RIZIKÓCSOPORT: ' + { low: 'alacsony', moderate: 'közepes', high: 'magas' }[r.risk.level]);
+        r.risk.high.concat(r.risk.moderate).forEach(function (x) { lines.push('- ' + x); });
+      }
+      if (r.ct && r.ct.indicated) lines.push('CT-INDIKÁCIÓ: ' + r.ct.reasons.join('; '));
+      if (s['ct.result']) lines.push('CT: ' + (s['ct.result'] === 'pos' ? 'pozitív' : 'negatív'));
+      return lines;
+    },
+    docSections: function (s, r) { return D.sections(s, r); },
+    reference: function () { return C.REFERENCE; },
+  });
+})();
+
+</script>
   <!-- A motor indítása a modulok után -->
   <script>
 /*
@@ -1964,6 +3694,7 @@ code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
   var openIllus = {};
   var epiEdits = {};
   var refOpen = null;
+  var lastSig = '';      // a látható lépések és mezők „ujjlenyomata” (feltételes mezők megjelenésének észleléséhez)
 
   function esc(t) {
     return String(t === undefined || t === null ? '' : t)
@@ -2133,6 +3864,13 @@ code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
     }
   }
 
+  function visibility(r) {
+    var steps = P.steps.filter(function (st) { return !P.stepVisible || P.stepVisible(st.id, state, r); });
+    var step = stepById(current);
+    var fields = step ? step.fields.map(function (f) { return f.when && !f.when(state, r) ? 0 : 1; }).join('') : '';
+    return { steps: steps, sig: steps.map(function (x) { return x.id; }).join(',') + '|' + current + '|' + fields };
+  }
+
   function renderExam() {
     var r = evaluate();
     var steps = P.steps.filter(function (st) { return !P.stepVisible || P.stepVisible(st.id, state, r); });
@@ -2153,6 +3891,7 @@ code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
       '</div>';
     $('form').innerHTML = html;
     $('panel').innerHTML = renderPanel(r);
+    lastSig = visibility(r).sig;
     var cur = document.querySelector('#steps .current');
     if (cur && cur.scrollIntoView && window.innerWidth <= 1100) cur.scrollIntoView({ block: 'nearest', inline: 'center' });
   }
@@ -2204,6 +3943,21 @@ code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
   function updateLive() {
     if (!P || view !== 'exam') return;
     var r = evaluate();
+    // Ha az adatváltozás miatt mező vagy lépés jelenik meg / tűnik el, teljes újrarajzolás a fókusz megtartásával
+    if (visibility(r).sig !== lastSig) {
+      var a = document.activeElement, key = a && a.getAttribute && a.getAttribute('data-key');
+      var pos = a && typeof a.selectionStart === 'number' ? a.selectionStart : null;
+      render();
+      if (key) {
+        var el = document.querySelector('[data-key="' + key + '"]:not([type=radio])');
+        if (el) {
+          el.focus();
+          if (pos !== null) el.setSelectionRange(pos, pos);
+          else { var v = el.value; el.value = ''; el.value = v; } // számmező: a kurzor a végére (gépelés közben ott van)
+        }
+      }
+      return;
+    }
     $('panel').innerHTML = renderPanel(r);
     var rep = $('report');
     if (rep) rep.textContent = reportText(r);

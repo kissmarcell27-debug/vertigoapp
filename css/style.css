@@ -259,3 +259,10 @@ textarea.report.epi { width: 100%; resize: vertical; color: var(--text); font: 1
 .expired { color: var(--warn); font-weight: 600; }
 .valid { color: var(--ok); }
 code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
+.ref-table { table-layout: fixed; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .tabs { flex-wrap: wrap; width: 100%; }
+  .tabs button { padding: 6px 10px; font-size: 14px; }
+  .ref-table { font-size: 12.5px; }
+  .ref-table th, .ref-table td { padding: 4px 5px; }
+}

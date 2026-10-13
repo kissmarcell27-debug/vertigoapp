@@ -7,6 +7,8 @@ a kezdőlapon választható ki, melyik szerint vizsgálja a beteget. Mindegyikhe
 | # | Eljárásrend | Modul | SOP |
 |---|---|---|---|
 | 14 | Szédüléssel jelentkező beteg ellátása | `protocols/szedules/` | ÉPC-HK SBO, v1.0 (2023.09.01.) – **érvényessége 2025.12.31-én lejárt** |
+| 5 | Syncope eljárásrend | `protocols/syncope/` | ÉPC-HK SBC, v1.0 (2026.02.10.) – érvényes 2027.01.01-ig |
+| 17 | Intracranialis vérzések sürgősségi kezelése (fejsérülés, IC vérzés) | `protocols/fejserules/` | ÉPC-HK SBC, v1.0 (2024.04.25.) – **érvényessége 2025.12.31-én lejárt** |
 
 Új eljárásrend hozzáadása: [`docs/UJ_ELJARASREND.md`](docs/UJ_ELJARASREND.md) (sablon: `protocols/_sablon/`).
 
@@ -97,3 +99,25 @@ fordulatokat követi („A fentebb részletezett anamnézisű beteget … vizsg�
 Csak a megadott adatokból következő állítás kerül bele; „negál” csak kifejezett nemleges válasznál vagy a
 „nem jelölt tüneteket negálja” jelölésnél. Hiányzó adat helyén `___` kitöltendő hely marad. Minden rész
 szerkeszthető; a szerkesztett részt a további adatváltozás nem írja felül, az „Újragenerálás” igen.
+
+### Syncope-modul (SOP 5)
+
+TLOC-besorolás (syncope / nem syncope / nem átmeneti / fejtrauma – utóbbinál átlépés a fejsérülés-modulba),
+kezdeti vizsgálatok, **aktív állás vizsgálat** az SOP 4.4 kritériumaival (>20 / >10 Hgmm esés vagy <90 Hgmm;
+POTS: >30/perc vagy >120/perc OH nélkül) és az OH-syncope bizonyosságával (igazolt / valószínű / lehetséges),
+carotis sinus masszázs (CSS / CSH), egyértelmű diagnózisok (4.5), rizikóbecslés (5.1–5.3; alacsony kockázathoz
+negatív fizikális vizsgálat és normál EKG is kell, a magas kockázati lista áttekintését meg kell erősíteni),
+diszpozíció (6.1–6.4), betegtájékoztató ellenmanőverekkel.
+
+### Fejsérülés / IC vérzés modul (SOP 17)
+
+GCS-kalkulátor, rizikócsoport (4.), CT-indikáció és időzítés (1 órás / 8 órás szabály, nyaki gerinc CT, CI–CII
+kiegészítés), speciális csoportok (13.: antikoagulált INR >1,4 / <1,4; TAG-gátló tünetes / tünetmentes), CT utáni
+diszpozíció és hospitalizációs kritériumok (11–12.), aranyóra (vérnyomás-célérték max. 15%-os csökkenéssel,
+testtömeg-alapú dózisok), nem traumás ICH / lobáris vérzés / SAV elhelyezése (2.), fejsérült-tájékoztató.
+
+Ahol a modul túlmegy az SOP szövegén, a felület jelzi:
+- **INR = 1,4:** az SOP csak az „1,4 felett / alatt” esetet definiálja, ilyenkor a biztonságosabb utat javasolja.
+- **NOAC:** a hatását az INR nem tükrözi megbízhatóan.
+- **Antikoagulált beteg tájékoztatója:** a „vérhígítót ne szedjen” tanács helyett egyedi döntés kell.
+

@@ -16,6 +16,7 @@
   var openIllus = {};
   var epiEdits = {};
   var refOpen = null;
+  var lastSig = '';      // a látható lépések és mezők „ujjlenyomata” (feltételes mezők megjelenésének észleléséhez)
 
   function esc(t) {
     return String(t === undefined || t === null ? '' : t)
@@ -185,6 +186,13 @@
     }
   }
 
+  function visibility(r) {
+    var steps = P.steps.filter(function (st) { return !P.stepVisible || P.stepVisible(st.id, state, r); });
+    var step = stepById(current);
+    var fields = step ? step.fields.map(function (f) { return f.when && !f.when(state, r) ? 0 : 1; }).join('') : '';
+    return { steps: steps, sig: steps.map(function (x) { return x.id; }).join(',') + '|' + current + '|' + fields };
+  }
+
   function renderExam() {
     var r = evaluate();
     var steps = P.steps.filter(function (st) { return !P.stepVisible || P.stepVisible(st.id, state, r); });
@@ -205,6 +213,7 @@
       '</div>';
     $('form').innerHTML = html;
     $('panel').innerHTML = renderPanel(r);
+    lastSig = visibility(r).sig;
     var cur = document.querySelector('#steps .current');
     if (cur && cur.scrollIntoView && window.innerWidth <= 1100) cur.scrollIntoView({ block: 'nearest', inline: 'center' });
   }
@@ -256,6 +265,21 @@
   function updateLive() {
     if (!P || view !== 'exam') return;
     var r = evaluate();
+    // Ha az adatváltozás miatt mező vagy lépés jelenik meg / tűnik el, teljes újrarajzolás a fókusz megtartásával
+    if (visibility(r).sig !== lastSig) {
+      var a = document.activeElement, key = a && a.getAttribute && a.getAttribute('data-key');
+      var pos = a && typeof a.selectionStart === 'number' ? a.selectionStart : null;
+      render();
+      if (key) {
+        var el = document.querySelector('[data-key="' + key + '"]:not([type=radio])');
+        if (el) {
+          el.focus();
+          if (pos !== null) el.setSelectionRange(pos, pos);
+          else { var v = el.value; el.value = ''; el.value = v; } // számmező: a kurzor a végére (gépelés közben ott van)
+        }
+      }
+      return;
+    }
     $('panel').innerHTML = renderPanel(r);
     var rep = $('report');
     if (rep) rep.textContent = reportText(r);
