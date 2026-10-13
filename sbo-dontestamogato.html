@@ -313,6 +313,20 @@ code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
 .pcard .pnum { width: 46px; height: 46px; }
 .psop { font-style: normal; font-size: 12px; font-weight: 700; color: var(--p-ink-use); letter-spacing: .02em; }
 
+/* MSTR triázs szintek (színjelentés: 1 piros, 2 narancs, 3 sárga, 4 zöld, 5 kék – ne változtasd) */
+.mstr { display: inline-block; min-width: 2.2em; padding: 1px 8px; border-radius: 10px; font-weight: 700; text-align: center; color: #fff; }
+.mstr.l1, .mstr-banner.l1 { background: #dc2626; color: #fff; }
+.mstr.l2, .mstr-banner.l2 { background: #f97316; color: #fff; }
+.mstr.l3, .mstr-banner.l3 { background: #facc15; color: #1a1a00; }
+.mstr.l4, .mstr-banner.l4 { background: #16a34a; color: #fff; }
+.mstr.l5, .mstr-banner.l5 { background: #1e3a8a; color: #fff; }
+.mstr-banner { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: 10px; margin-bottom: 10px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+.mstr-banner small { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; opacity: .85; }
+.mstr-banner b { font-size: 20px; line-height: 1.2; }
+.mstr-banner span { font-size: 13px; opacity: .95; }
+.mstr-banner.none { background: transparent; border: 1px dashed var(--line); color: var(--muted); text-align: center; box-shadow: none; font-size: 14px; }
+@media print { .mstr, .mstr-banner { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+
 </style>
 </head>
 <body>
@@ -3841,6 +3855,590 @@ code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
 })();
 
 </script>
+  <script>
+/*
+ * MSTR Triage – besorolási logika (felnőtt MSTR, a kanadai CTAS magyar adaptációja).
+ * Irányadó specifikáció: docs/mstr-triage-logika.md. Átemelve az SBC Portál prototípusából
+ * (app/index.html, Triage komponens) – a küszöbök és a döntési szabály VÁLTOZATLANOK:
+ * minden rögzített tényező egy javasolt szintet ad, a végeredmény a legsúlyosabb (legkisebb számú) szint.
+ * A küszöbértékek módosítása csak a megrendelővel egyeztetve, dokumentáltan történhet.
+ * Tiszta függvények; böngészőben window.TriageLogic, Node-ban module.exports.
+ */
+(function (root) {
+  'use strict';
+
+  var LEVELS = {
+    1: { name: 'Reszuszcitáció / azonnali', reassess: 'Folyamatos ápolói felügyelet', hex: '#dc2626', fg: '#ffffff' },
+    2: { name: 'Kritikus', reassess: '15 percenként', hex: '#f97316', fg: '#ffffff' },
+    3: { name: 'Sürgős', reassess: '30 percenként', hex: '#facc15', fg: '#1a1a00' },
+    4: { name: 'Kevésbé sürgős', reassess: '60 percenként', hex: '#16a34a', fg: '#ffffff' },
+    5: { name: 'Halasztható', reassess: '120 percenként', hex: '#1e3a8a', fg: '#ffffff' },
+  };
+
+  var num = function (v) {
+    if (v === null || v === undefined || v === '') return null;
+    var n = Number(String(v).replace(',', '.'));
+    return isFinite(n) ? n : null;
+  };
+
+  var RESP = { 1: 'Súlyos', 2: 'Közepes', 3: 'Enyhe', none: 'Nincs' };
+  var CIRC = { 1: 'Sokk', 2: 'Instabil', 3: 'Határérték', none: 'Normál' };
+  var FEVER = { immuno: [2, 'Immunhiányos'], septic: [2, 'Szeptikus küllem'], ill: [3, 'Súlyos beteg küllem'], well: [4, 'Jó általános állapot'] };
+  var COAG = { 2: 'Súlyos vérzés', 3: 'Enyhe/közepes vérzés' };
+  // Másodlagos módosítók – a specifikáció sorrendjében (egymástól függetlenül jelölhetők, mint a prototípusban)
+  var SEC = [
+    ['sec.gluc2', 2, 'Vércukor-eltérés tünetekkel'],
+    ['sec.gluc3', 3, 'Vércukor-eltérés tünet nélkül'],
+    ['sec.htn2', 2, 'RR ≥220/130 tünetekkel'],
+    ['sec.htn3', 3, 'RR ≥220/130 tünet nélkül'],
+    ['sec.cp2', 2, 'Szív eredetű mellkasi fájdalom'],
+    ['sec.cva2', 2, 'Stroke tünetek <4,5 óra'],
+    ['sec.cva3', 3, 'Stroke tünetek >4,5 óra v. megszűnt'],
+    ['sec.dys2', 2, 'Nyelészavar nyáladzással + stridor'],
+    ['sec.deform3', 3, 'Deformitással járó végtagsérülés'],
+    ['sec.dehyd2', 2, 'Közepes kiszáradás'],
+    ['sec.dehyd3', 3, 'Enyhe kiszáradás'],
+  ];
+  var PAIN_TABLE = {
+    'central-acute': { severe: 2, moderate: 3, mild: 4 },
+    'central-chronic': { severe: 3, moderate: 4, mild: 5 },
+    'periph-acute': { severe: 3, moderate: 4, mild: 5 },
+    'periph-chronic': { severe: 4, moderate: 5, mild: 5 },
+  };
+
+  function vitals(s) {
+    var v = { hr: num(s['v.hr']), rr: num(s['v.rr']), sys: num(s['v.sys']), dia: num(s['v.dia']), spo2: num(s['v.spo2']), temp: num(s['v.temp']), pain: num(s['v.pain']) };
+    var e = num(s['gcs.e']), vv = num(s['gcs.v']), m = num(s['gcs.m']);
+    v.gcs = (e !== null && vv !== null && m !== null) ? { e: e, v: vv, m: m, total: e + vv + m } : null;
+    v.gcsLevel = v.gcs === null ? null : v.gcs.total <= 9 ? 1 : v.gcs.total <= 13 ? 2 : null;
+    v.spo2Level = v.spo2 === null ? null : v.spo2 < 90 ? 1 : v.spo2 <= 92 ? 2 : v.spo2 <= 94 ? 3 : null;
+    v.feverPresent = v.temp !== null && v.temp >= 38;
+    v.htnHigh = (v.sys !== null && v.sys >= 220) || (v.dia !== null && v.dia >= 130);
+    var sirs = 0;
+    if (v.temp !== null && (v.temp > 38 || v.temp < 36)) sirs++;
+    if (v.hr !== null && v.hr > 90) sirs++;
+    if (v.rr !== null && v.rr > 20) sirs++;
+    if (s['wbc.abn']) sirs++;
+    v.sirs = sirs;
+    v.painSev = v.pain === null ? null : v.pain >= 8 ? 'severe' : v.pain >= 4 ? 'moderate' : v.pain >= 1 ? 'mild' : null;
+    var key = s['pain.loc'] && s['pain.onset'] ? s['pain.loc'] + '-' + s['pain.onset'] : null;
+    v.painLevel = key && v.painSev ? (PAIN_TABLE[key] || {})[v.painSev] || null : null;
+    v.any = ['hr', 'rr', 'sys', 'spo2', 'temp', 'pain'].some(function (k) { return v[k] !== null; }) || v.gcs !== null;
+    return v;
+  }
+
+  // A rögzített tényezők listája (sorrend = a prototípusé; a „meghatározó” az első, legsúlyosabb szintű tényező)
+  function factors(s, v) {
+    var f = [];
+    if (s.critical) f.push({ label: 'Elsődleges megtekintés: azonnali beavatkozás', level: 1 });
+    if (s.resp && s.resp !== 'none') f.push({ label: 'Légzés: ' + RESP[s.resp], level: Number(s.resp) });
+    if (v.spo2Level) f.push({ label: 'Szaturáció ' + v.spo2 + '%', level: v.spo2Level });
+    if (s.circ && s.circ !== 'none') f.push({ label: 'Keringés: ' + CIRC[s.circ], level: Number(s.circ) });
+    if (v.gcsLevel) f.push({ label: 'Tudat (GCS ' + v.gcs.total + ')', level: v.gcsLevel });
+    if (v.feverPresent && FEVER[s.fever]) f.push({ label: 'Láz: ' + FEVER[s.fever][1], level: FEVER[s.fever][0] });
+    if (v.painLevel) f.push({ label: 'Fájdalom (VAS ' + v.pain + ')', level: v.painLevel });
+    if (COAG[s.coag]) f.push({ label: 'Vérzés: ' + COAG[s.coag], level: Number(s.coag) });
+    if (s.moi) f.push({ label: 'Magas rizikójú baleseti mechanizmus', level: 2 });
+    SEC.forEach(function (x) { if (s[x[0]]) f.push({ label: x[2], level: x[1] }); });
+    if (s.over) f.push({ label: 'Ápolói felül-triázsolás', level: Number(s.over) });
+    return f;
+  }
+
+  function konzilium(s, list) {
+    var k = list.filter(function (x, i) { return s['konz.' + i]; });
+    if (s['konz.other']) String(s['konz.other']).split(',').map(function (x) { return x.trim(); }).filter(Boolean).forEach(function (x) { if (k.indexOf(x) < 0) k.push(x); });
+    return k;
+  }
+
+  var KONZ = ['Sebészet', 'Traumatológia', 'Égéssebészet', 'Belgyógyászat', 'Kardiológia', 'Neurológia', 'Ortopédia', 'Szemészet', 'Fül-orr-gége', 'Nőgyógyászat', 'Urológia', 'Pszichiátria'];
+
+  function evaluate(s) {
+    s = s || {};
+    var r = { category: null, stage: 'start', path: [], alerts: [], workingDx: [], actions: [], disposition: [], differentials: [] };
+    var v = vitals(s);
+    var f = factors(s, v);
+    var levels = f.map(function (x) { return x.level; }).filter(Boolean);
+    var level = levels.length ? Math.min.apply(null, levels) : null;
+    var driver = f.filter(function (x) { return x.level === level; })[0] || null;
+    r.v = v; r.factors = f; r.level = level; r.driver = driver;
+    r.konz = konzilium(s, KONZ);
+    if (level) r.category = 'L' + level;
+    f.forEach(function (x) { r.path.push('MSTR ' + x.level + ' – ' + x.label); });
+
+    if (s.critical) r.alerts.push({ level: 'danger', text: 'Azonnali beavatkozást igényel: MSTR 1 – a triázs nem késleltetheti az ellátást.', ref: 'MSTR spec.' });
+    if (s['inf.csepp'] || s['inf.kontakt']) r.alerts.push({ level: 'warn', text: 'Izoláció / védőeszköz indokolt (' + [s['inf.csepp'] ? 'cseppfertőzés gyanú' : null, s['inf.kontakt'] ? 'kontakt fertőzés gyanú' : null].filter(Boolean).join(', ') + ').', ref: 'MSTR spec.' });
+    if (v.sirs >= 3 && v.feverPresent) r.alerts.push({ level: 'warn', text: 'SIRS ' + v.sirs + '/4 lázzal – szeptikus küllem lehet.', ref: 'MSTR spec.' });
+    if (v.htnHigh && !s['sec.htn2'] && !s['sec.htn3']) r.alerts.push({ level: 'info', text: 'Mért RR ≥220/130 – a másodlagos módosítóknál válassza ki tünet szerint.', ref: 'MSTR spec.' });
+    if (level) r.actions.push({ text: 'Újraértékelés: ' + LEVELS[level].reassess + '.', ref: 'MSTR spec.' });
+    if (s.fasttrack) r.disposition.push({ text: 'Fast track vizsgálóba kerül.', ref: 'MSTR spec.' });
+    if (r.konz.length) r.disposition.push({ text: 'Konzílium: ' + r.konz.join(', ') + '.', ref: 'MSTR spec.' });
+
+    // „Következő teendő” – a felvételi sorrend szerint (nem kötelező lépések, csak irányt mutat)
+    if (s.critical) r.stage = 'done';
+    else if (!s.complaint) r.stage = 'complaint';
+    else if (!v.any) r.stage = 'vitals';
+    else if (!s.resp || !s.circ) r.stage = 'qual';
+    else r.stage = 'done';
+    return r;
+  }
+
+  var api = { evaluate: evaluate, vitals: vitals, factors: factors, LEVELS: LEVELS, SEC: SEC, KONZ: KONZ, PAIN_TABLE: PAIN_TABLE };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.TriageLogic = api;
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+  <script>
+/*
+ * MSTR Triage – tartalom: CEDIS vezetőpanasz-lista (az SBC Portál prototípusából, változatlanul) és referencia.
+ */
+(function (root) {
+  'use strict';
+
+  var SOP = {
+    number: 'MSTR',
+    title: 'MSTR Triage segéd (felnőtt)',
+    issuer: 'Magyar Sürgősségi Triázs Rendszer (CTAS-adaptáció)',
+    version: 'SBC Portál prototípusából átemelve',
+  };
+
+  // [csoport, panasz]
+  var COMPLAINTS = [
+  ["Szív/ér","Mellkasi fájdalom (szív eredetű)"],["Szív/ér","Mellkasi fájdalom (nem szív eredetű)"],["Szív/ér","Szívdobogásérzés / ritmuszavar"],["Szív/ér","Ájulás / ájulásközeli állapot"],["Szív/ér","Hipertenzió"],["Szív/ér","Általános gyengeség"],
+  ["Légzés","Légszomj / nehézlégzés"],["Légzés","Köhögés / torokszűkület"],["Légzés","Vérköpés"],["Légzés","Stridor"],["Légzés","Allergiás reakció"],["Légzés","Légzésleállás"],
+  ["Neurológia","Fejfájás"],["Neurológia","Görcsroham"],["Neurológia","Módosult tudatállapot"],["Neurológia","Zavartság"],["Neurológia","Végtaggyengeség / stroke tünetek"],["Neurológia","Szédülés"],["Neurológia","Fejsérülés"],
+  ["Gasztrointesztinális","Hasi fájdalom"],["Gasztrointesztinális","Hányás / hányinger"],["Gasztrointesztinális","Vérhányás"],["Gasztrointesztinális","Hasmenés"],["Gasztrointesztinális","Véres széklet / meléna"],["Gasztrointesztinális","Sárgaság"],
+  ["Urológia","Húgyúti fertőzéses panasz"],["Urológia","Vérvizelés"],["Urológia","Vizeletretenció"],["Urológia","Deréktáji fájdalom"],["Urológia","Herefájdalom / duzzanat"],
+  ["Nőgyógyászat","Hüvelyi vérzés"],["Nőgyógyászat","Terhesség < 20 hét"],["Nőgyógyászat","Terhesség > 20 hét"],["Nőgyógyászat","Nemi erőszak"],
+  ["Mozgásszervi","Felsővégtagi sérülés"],["Mozgásszervi","Alsóvégtagi sérülés"],["Mozgásszervi","Hátfájdalom"],["Mozgásszervi","Traumás gerincsérülés"],["Mozgásszervi","Amputáció"],
+  ["Trauma","Súlyos trauma – tompa"],["Trauma","Súlyos trauma – áthatoló"],["Trauma","Izolált hasi sérülés"],["Trauma","Izolált mellkasi sérülés"],
+  ["Bőr","Tépett / szúrt seb"],["Bőr","Égés"],["Bőr","Harapás"],["Bőr","Kiütés"],["Bőr","Sebellenőrzés"],["Bőr","Kötéscsere"],
+  ["Mentális","Szorongás / krízishelyzet"],["Mentális","Depresszió / öngyilkossági szándék"],["Mentális","Hallucináció / téveszme"],["Mentális","Erőszakos / közveszélyes viselkedés"],
+  ["Szemészet","Szemfájdalom"],["Szemészet","Látászavar"],["Szemészet","Idegen test a szemben"],["Szemészet","Kémiai szemártalom"],
+  ["FOG","Torokfájás"],["FOG","Nyelési nehezítettség / dysphagia"],["FOG","Orrvérzés"],["FOG","Nyaki trauma"],
+  ["Exogén","Kémiai ártalom"],["Exogén","Gázmérgezés"],["Exogén","Hipotermia"],["Exogén","Fulladásközeli állapot"],
+  ["Toxikológia","Szájon át túladagolás"],["Toxikológia","Gyógyszer/szer visszaélés"],
+  ["Egyéb","Láz"],["Egyéb","Hiperglikémia"],["Egyéb","Hipoglikémia"],["Egyéb","Gyógyszerfelírás"],["Egyéb","Konzultáció"],
+  ];
+
+  var REFERENCE = [
+    {
+      id: 'levels', title: 'Az öt MSTR szint',
+      html: '<table class="ref-table"><thead><tr><th>Szint</th><th>Név</th><th>Újraértékelés</th></tr></thead><tbody>' +
+        '<tr><td><span class="mstr l1">1</span></td><td>Reszuszcitáció / azonnali</td><td>folyamatos</td></tr>' +
+        '<tr><td><span class="mstr l2">2</span></td><td>Kritikus</td><td>15 perc</td></tr>' +
+        '<tr><td><span class="mstr l3">3</span></td><td>Sürgős</td><td>30 perc</td></tr>' +
+        '<tr><td><span class="mstr l4">4</span></td><td>Kevésbé sürgős</td><td>60 perc</td></tr>' +
+        '<tr><td><span class="mstr l5">5</span></td><td>Halasztható</td><td>120 perc</td></tr></tbody></table>' +
+        '<p><b>Alapelv:</b> minden rögzített tényező egy javasolt szintet ad; a végeredmény mindig a <b>legsúlyosabb</b> (legkisebb számú) aktív szint. A normál leletek nem emelnek szintet. Az ápoló felül-triázsolhat. Kritikus állapotban a triázs nem késleltetheti az ellátást.</p>',
+    },
+    {
+      id: 'primary', title: 'Elsődleges módosítók (küszöbök)',
+      html: '<p><b>Légzés / SpO₂:</b> súlyos (cianózis, kimerült, beszédképtelen, lélegeztetés) vagy SpO₂ &lt;90% → 1; közepes (fokozott munka, rövid mondatok, jelentős stridor) vagy 90–92% → 2; enyhe (csak terhelésre, összefüggő beszéd) vagy 92–94% → 3; &gt;94% nem emel. A mért SpO₂ „padló”, a légzési munka felfelé írhatja.</p>' +
+        '<p><b>Keringés:</b> sokk → 1; hemodinamikai instabilitás (indokolatlan tachycardia, ortosztázis, ájulásérzés) → 2; határérték / eltér a megszokottól → 3.</p>' +
+        '<p><b>GCS:</b> 3–9 → 1; 10–13 → 2; 14–15 nem emel.</p>' +
+        '<p><b>Láz (≥38 °C), SIRS-függő</b> (SIRS: testhő &gt;38 v. &lt;36 °C; pulzus &gt;90; légzésszám &gt;20; FVS &gt;12 v. &lt;4 ezer): immunhiányos → 2; szeptikus küllem (≥3 SIRS, instabil, közepes nehézlégzés, módosult tudat) → 2; súlyos beteg küllem (&lt;3 SIRS) → 3; jó általános állapot (a láz az egyetlen pozitív SIRS) → 4.</p>' +
+        '<p><b>Fájdalom (VAS):</b> enyhe 1–3, mérsékelt 4–7, súlyos 8–10.</p>' +
+        '<table class="ref-table"><thead><tr><th>Hely / jelleg</th><th>Súlyos</th><th>Mérsékelt</th><th>Enyhe</th></tr></thead><tbody>' +
+        '<tr><td>Centrális, heveny</td><td>2</td><td>3</td><td>4</td></tr><tr><td>Centrális, krónikus</td><td>3</td><td>4</td><td>5</td></tr>' +
+        '<tr><td>Perifériás, heveny</td><td>3</td><td>4</td><td>5</td></tr><tr><td>Perifériás, krónikus</td><td>4</td><td>5</td><td>5</td></tr></tbody></table>' +
+        '<p><b>Vérzés:</b> életet/végtagot veszélyeztető (vagy alvadászavar/antikoaguláns mellett) → 2; enyhe/közepes → 3. <b>Magas rizikójú baleseti mechanizmus</b> (kiesés/átfordulás, &gt;40–60 km/h, &gt;3 m esés, gázolás, áthatoló törzssérülés) → 2.</p>',
+    },
+    {
+      id: 'secondary', title: 'Másodlagos módosítók (panaszspecifikus)',
+      html: '<ul><li>Vércukor: hipo (&lt;3) v. hiper (&gt;18) tünetekkel → 2; tünet nélkül → 3.</li><li>Magas vérnyomás (≥220/130): tünettel → 2; tünet nélkül → 3.</li>' +
+        '<li>Szív eredetű (v. jelentős) mellkasi fájdalom → 2.</li><li>Stroke / féloldali gyengeség: kezdet &lt;4,5 óra → 2; &gt;4,5 óra v. megszűnt → 3.</li>' +
+        '<li>Nyelésképtelenség nyáladzással + stridor → 2.</li><li>Végtagsérülés nyilvánvaló deformitással → 3.</li><li>Kiszáradás: közepes → 2; enyhe → 3.</li></ul>',
+    },
+    {
+      id: 'sources', title: 'Forrás, korlátok',
+      html: '<ul><li>Magyar Sürgősségi Triázs Rendszer (MSTR), a kanadai CTAS adaptációja – felnőtt protokoll. Irányadó leírás: <code>docs/mstr-triage-logika.md</code>.</li>' +
+        '<li>A logika az SBC Portál prototípusából változatlanul átemelve; a küszöbértékek módosítása csak egyeztetve, dokumentáltan.</li>' +
+        '<li>Nem implementált: gyermek (pediátriai) MSTR protokoll.</li>' +
+        '<li>A triázs nem tárol betegazonosítót; a nyomtatott lapon 6×3 cm-es etikett-hely van.</li></ul>',
+    },
+  ];
+
+  var api = { SOP: SOP, COMPLAINTS: COMPLAINTS, REFERENCE: REFERENCE };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.TriageContent = api;
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+  <script>
+/*
+ * MSTR Triage – triázs jegyzőkönyv (szöveg és nyomtatható lap).
+ * A formátum az SBC Portál prototípusáé (buildText / buildHtml) változatlan tartalommal:
+ * betegazonosító helyett 6×3 cm-es etikett-mező, a lap alján kötelező klinikai figyelmeztetés.
+ * Függ: TriageLogic. Böngészőben window.TriageDocs, Node-ban module.exports.
+ */
+(function (root) {
+  'use strict';
+
+  var L = (typeof module !== 'undefined' && module.exports) ? require('./logic.js') : root.TriageLogic;
+  var LEVELS = L.LEVELS;
+  var DASH = '—';
+  var WARN_TEXT = 'Döntéstámogató eszközzel készült; a végső besorolás a triázs ápoló klinikai megítélésén alapul.';
+  var WARN_PRINT = 'Döntéstámogató eszközzel készült. A végső triázs besorolás a triázs ápoló klinikai megítélésén alapul; kritikus állapotban az ellátás nem késleltethető.';
+
+  function esc(t) {
+    return String(t === undefined || t === null ? '' : t)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function raw(s, k) { return s[k] === undefined || s[k] === null || s[k] === '' ? '' : String(s[k]); }
+  function fmtTime(v) { return v ? String(v).replace('T', ' ') : DASH; }
+
+  function nowLocal(d) {
+    d = d || new Date();
+    var p = function (n) { return String(n).padStart(2, '0'); };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  function gcsStr(v) { return v.gcs ? v.gcs.total + ' (Sz' + v.gcs.e + ' V' + v.gcs.v + ' M' + v.gcs.m + ')' : '–'; }
+
+  function paramPairs(s, r) {
+    var d = function (k) { return raw(s, k) || '–'; };
+    return [
+      ['Pulzus', d('v.hr') + ' /min'], ['Légzésszám', d('v.rr') + ' /min'],
+      ['Vérnyomás', d('v.sys') + '/' + d('v.dia') + ' Hgmm'], ['Szaturáció', d('v.spo2') + ' %'],
+      ['Testhő', d('v.temp') + ' °C'], ['GCS', gcsStr(r.v)], ['Fájdalom (VAS)', d('v.pain')], ['SIRS', r.v.sirs + '/4'],
+    ];
+  }
+
+  function dispoList(s, r) {
+    var d = [];
+    if (s.fasttrack) d.push('FAST TRACK vizsgáló');
+    if (r.konz.length) d.push('Konzílium: ' + r.konz.join(', '));
+    return d;
+  }
+
+  function levelLine(r) {
+    return r.level ? 'MSTR ' + r.level + ' – ' + LEVELS[r.level].name + ' (újraértékelés: ' + LEVELS[r.level].reassess + ')' : 'Nincs megállapítva';
+  }
+
+  // Szöveges jegyzőkönyv – a prototípus buildText() kimenetével azonos sorrend és megfogalmazás
+  function text(s, r) {
+    var disp = dispoList(s, r);
+    return ['TRIÁZS JEGYZŐKÖNYV – Honvédkórház, Sürgősségi Centrum',
+      'Időpont: ' + fmtTime(s.time),
+      'Beteg azonosító: (etikett)',
+      'Érkezés módja: ' + (raw(s, 'arrival') || DASH),
+      'Vezető panasz: ' + (raw(s, 'complaint') || DASH),
+      '',
+      'Vitális paraméterek:']
+      .concat(paramPairs(s, r).map(function (p) { return '  ' + p[0] + ': ' + p[1]; }))
+      .concat(['',
+        'MEGÁLLAPÍTOTT TRIÁZS SZINT: ' + levelLine(r),
+        r.driver ? 'Meghatározó tényező: ' + r.driver.label : '',
+        '',
+        'Rögzített tényezők:',
+        r.factors.length ? r.factors.map(function (f) { return '  • [MSTR ' + f.level + '] ' + f.label; }).join('\n') : '  • ' + DASH,
+        '',
+        'Diszpozíció: ' + (disp.length ? disp.join(' · ') : DASH),
+        '',
+        'Esemény leírása:',
+        raw(s, 'narr') || '  ' + DASH,
+        '',
+        'Triázs ápoló: ' + (raw(s, 'nurse') || DASH),
+        '',
+        WARN_TEXT]).join('\n');
+  }
+
+  // Rövid, egysoros változat (pl. az ambuláns lap „Jelen panasz” rovatába)
+  function shortLine(s, r) {
+    var v = r.v;
+    return 'Triázs' + (s.time ? ' (' + fmtTime(s.time) + ')' : '') + ': ' + (r.level ? 'MSTR ' + r.level + ' – ' + LEVELS[r.level].name : 'nincs megállapítva') +
+      (r.driver ? '; meghatározó: ' + r.driver.label : '') +
+      '. Vezető panasz: ' + (raw(s, 'complaint') || DASH) +
+      '. P ' + (raw(s, 'v.hr') || '–') + '/min · L ' + (raw(s, 'v.rr') || '–') + '/min · RR ' + (raw(s, 'v.sys') || '–') + '/' + (raw(s, 'v.dia') || '–') +
+      ' Hgmm · SpO₂ ' + (raw(s, 'v.spo2') || '–') + '% · ' + (raw(s, 'v.temp') || '–') + '°C · GCS ' + gcsStr(v) + ' · VAS ' + (raw(s, 'v.pain') || '–') + ' · SIRS ' + v.sirs + '/4.';
+  }
+
+  function sections(s, r) {
+    return [
+      { id: 'jkv', title: 'Triázs jegyzőkönyv', text: text(s, r) },
+      { id: 'short', title: 'Rövid összefoglaló (egy sor)', text: shortLine(s, r) },
+    ];
+  }
+
+  // Nyomtatható lap – a prototípus buildHtml() elrendezése (etikett-mező, szintdoboz, paraméter-rács, aláírás, figyelmeztetés)
+  function html(s, r, opts) {
+    opts = opts || {};
+    var lvl = r.level ? LEVELS[r.level] : null;
+    var factorRows = r.factors.length ? r.factors.map(function (f) {
+      return '<tr><td style="width:72px"><span style="display:inline-block;min-width:48px;text-align:center;padding:2px 6px;border-radius:10px;font-weight:700;white-space:nowrap;background:' + LEVELS[f.level].hex + ';color:' + LEVELS[f.level].fg + '">MSTR ' + f.level + '</span></td><td>' + esc(f.label) + '</td></tr>';
+    }).join('') : '<tr><td colspan="2" style="color:#888">—</td></tr>';
+    var paramCells = paramPairs(s, r).map(function (p) { return '<div class="param"><div class="pl">' + esc(p[0]) + '</div><div class="pv">' + esc(p[1]) + '</div></div>'; }).join('');
+    var disp = dispoList(s, r).map(esc);
+    var dispHtml = disp.length ? disp.join(' &nbsp;·&nbsp; ') : DASH;
+    return '<!doctype html><html lang="hu"><head><meta charset="utf-8"><title>Triázs jegyzőkönyv</title><style>*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#1f2937;margin:0;padding:28px;font-size:13px;line-height:1.5}h1{font-size:18px;margin:0}.sub{color:#6b7280;font-size:12px;margin:2px 0 0}.head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}.label-box{flex:0 0 auto;width:6cm;height:3cm;border:1.5px dashed #9ca3af;border-radius:6px;display:flex;align-items:center;justify-content:center;text-align:center;color:#9ca3af;font-size:10px;padding:4px}.metarow{margin:14px 0 4px;color:#374151}.metarow b{color:#111}.sec-title{font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#374151;margin:18px 0 6px;border-bottom:2px solid #111;padding-bottom:4px}.params{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.param{border:1px solid #e5e7eb;border-radius:8px;padding:6px 8px}.param .pl{font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.03em}.param .pv{font-size:15px;font-weight:700;margin-top:1px}.levelbox{margin:16px 0;padding:14px 16px;border-radius:10px;background:' + (lvl ? lvl.hex : '#e5e7eb') + ';color:' + (lvl ? lvl.fg : '#111') + ';-webkit-print-color-adjust:exact;print-color-adjust:exact}.levelbox .big{font-size:20px;font-weight:800}table{width:100%;border-collapse:collapse;margin-top:4px}td{padding:4px 6px;border-bottom:1px solid #eee;vertical-align:top}td span{-webkit-print-color-adjust:exact;print-color-adjust:exact}.dispo{border:1px solid #cbd5e1;background:#f8fafc;border-radius:8px;padding:10px 12px;font-weight:600}.narr{white-space:pre-wrap;border:1px solid #e5e7eb;border-radius:8px;padding:10px;min-height:46px}.foot{margin-top:22px;color:#6b7280;font-size:11px;border-top:1px solid #e5e7eb;padding-top:10px}.sign{margin-top:26px;display:flex;justify-content:space-between}.sign div{border-top:1px solid #9ca3af;padding-top:4px;width:45%;text-align:center;color:#6b7280;font-size:11px}@media print{body{padding:14px}}</style></head><body>' +
+      '<div class="head"><div><h1>Triázs jegyzőkönyv</h1><div class="sub">Honvédkórház – Sürgősségi Centrum · MSTR (felnőtt)</div></div><div class="label-box">Beteg azonosító<br>etikett helye<br>(6 × 3 cm)</div></div>' +
+      '<div class="metarow">Időpont: <b>' + esc(fmtTime(s.time)) + '</b> &nbsp;·&nbsp; Érkezés módja: <b>' + (esc(raw(s, 'arrival')) || DASH) + '</b> &nbsp;·&nbsp; Vezető panasz: <b>' + (esc(raw(s, 'complaint')) || DASH) + '</b></div>' +
+      '<div class="sec-title">Vitális paraméterek</div><div class="params">' + paramCells + '</div>' +
+      '<div class="levelbox"><div style="font-size:11px;text-transform:uppercase;opacity:.85">Megállapított triázs szint</div><div class="big">' + (lvl ? 'MSTR ' + r.level + ' · ' + esc(lvl.name) : 'Nincs megállapítva') + '</div>' +
+      (lvl ? '<div style="font-size:12px;opacity:.9;margin-top:2px">Újraértékelés: ' + esc(lvl.reassess) + (r.driver ? ' · Meghatározó: ' + esc(r.driver.label) : '') + '</div>' : '') + '</div>' +
+      '<div class="sec-title">Rögzített tényezők</div><table>' + factorRows + '</table>' +
+      '<div class="sec-title">Diszpozíció</div><div class="dispo">' + dispHtml + '</div>' +
+      '<div class="sec-title">Esemény leírása</div><div class="narr">' + (esc(raw(s, 'narr')) || DASH) + '</div>' +
+      '<div class="sign"><div>Triázs ápoló: ' + (esc(raw(s, 'nurse')) || '&nbsp;') + '</div><div>Dátum / aláírás</div></div>' +
+      '<div class="foot">' + WARN_PRINT + '</div>' +
+      (opts.autoPrint ? '<scr' + 'ipt>window.onload=function(){setTimeout(function(){window.print()},250)}</scr' + 'ipt>' : '') +
+      '</body></html>';
+  }
+
+  function fileName(s) { return 'triazs_' + String(s.time || nowLocal()).replace(/[:T ]/g, '-') + '.html'; }
+
+  var api = { text: text, shortLine: shortLine, sections: sections, html: html, fileName: fileName, nowLocal: nowLocal, fmtTime: fmtTime, WARN_TEXT: WARN_TEXT, WARN_PRINT: WARN_PRINT };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.TriageDocs = api;
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+  <script>
+/*
+ * Eljárásrend-modul: MSTR Triage segéd (felnőtt) – az SBC Portál triázs-moduljából átemelve.
+ * A lépések a prototípus felületi sorrendjét követik (docs/mstr-triage-logika.md, „A triázs folyamata”).
+ * Függ: SBO, TriageLogic, TriageContent, TriageDocs.
+ */
+(function () {
+  'use strict';
+
+  var L = window.TriageLogic;
+  var C = window.TriageContent;
+  var D = window.TriageDocs;
+  var LV = L.LEVELS;
+
+  var WARNING = 'Döntéstámogató eszköz, nem helyettesíti a klinikai megítélést. Kritikus állapotban a triázs ne késleltesse az ellátást. Kétség esetén felfelé triázsolj.';
+  function esc(t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function badge(l) { return '<span class="mstr l' + l + '">MSTR ' + l + '</span>'; }
+  function lvl(l, text) { return text + ' → ' + l; }
+  var range = function (a, b) { var o = []; for (var i = a; i <= b; i++) o.push({ v: String(i), l: String(i) }); return o; };
+  var hasPain = function (s, r) { return r.v.pain !== null && r.v.pain >= 1; };
+
+  var STEPS = [
+    {
+      id: 'start', title: 'Felvétel, elsődleges megtekintés', ref: 'MSTR 1. lépés',
+      fields: [
+        { type: 'note', level: 'info', html: 'Betegazonosító nem kerül rögzítésre – a nyomtatott lapra ragasztható etikett. Az adatok csak a böngésző memóriájában vannak.' },
+        { type: 'text', input: 'datetime-local', key: 'time', label: 'Érkezés ideje' },
+        { type: 'note', level: 'info', html: '<button type="button" class="btn small" data-action="now">Most</button> – az aktuális időpont beírása.' },
+        { type: 'text', key: 'nurse', label: 'Triázs ápoló (név / azonosító)' },
+        { type: 'choice', key: 'arrival', label: 'Érkezés módja', options: [{ v: 'Saját láb', l: 'Saját láb' }, { v: 'Mentő', l: 'Mentő' }, { v: 'Egyéb', l: 'Egyéb' }] },
+        { type: 'heading', label: 'Azonnali ellátást igényel? (ABCD, 3–5 mp)' },
+        { type: 'check', key: 'critical', label: 'Igen – keringés-/légzésmegállás, súlyos sokk, eszméletlenség, zajló görcs → MSTR 1' },
+        { type: 'note', level: 'danger', when: function (s) { return !!s.critical; }, html: '<b>MSTR 1.</b> Azonnali ellátás – a további adatfelvétel nem késleltetheti.' },
+        { type: 'check', key: 'inf.csepp', label: 'Cseppfertőzés gyanú' },
+        { type: 'check', key: 'inf.kontakt', label: 'Kontakt fertőzés gyanú' },
+        { type: 'note', level: 'warn', when: function (s) { return s['inf.csepp'] || s['inf.kontakt']; }, html: 'Izoláció / védőeszköz indokolt.' },
+      ],
+    },
+    {
+      id: 'complaint', title: 'Vezető panasz', ref: 'MSTR 2. lépés (CEDIS)',
+      fields: [
+        { type: 'text', key: 'complaint', label: 'Vezető panasz – kezdjen el gépelni a CEDIS-listából választáshoz, vagy írjon be sajátot', list: C.COMPLAINTS.map(function (x) { return { v: x[1], l: x[0] }; }) },
+        { type: 'widget', name: 'complaintGroup' },
+      ],
+    },
+    {
+      id: 'vitals', title: 'Vitális paraméterek', ref: 'MSTR 3. lépés',
+      fields: [
+        { type: 'note', level: 'info', html: 'Mérés a kikérdezés közben – az értékek automatikusan jelzik a szintet és a SIRS-t.' },
+        { type: 'num', key: 'v.hr', label: 'Pulzus (/min)' },
+        { type: 'num', key: 'v.rr', label: 'Légzésszám (/min)' },
+        { type: 'num2', keys: ['v.sys', 'v.dia'], ph: ['szisztolés', 'diasztolés'], label: 'Vérnyomás (Hgmm)' },
+        { type: 'num', key: 'v.spo2', label: 'Szaturáció (%)' },
+        { type: 'num', key: 'v.temp', label: 'Testhő (°C)' },
+        { type: 'num', key: 'v.pain', label: 'Fájdalom (VAS 0–10)' },
+        { type: 'heading', label: 'GCS – Glasgow Coma Scale' },
+        { type: 'choice', key: 'gcs.e', label: 'Szem (1–4)', options: range(1, 4) },
+        { type: 'choice', key: 'gcs.v', label: 'Verbál (1–5)', options: range(1, 5) },
+        { type: 'choice', key: 'gcs.m', label: 'Mozgás (1–6)', options: range(1, 6) },
+        { type: 'check', key: 'wbc.abn', label: 'FVS-eltérés (>12 / <4 ezer)' },
+        { type: 'widget', name: 'vitalFlags' },
+      ],
+    },
+    {
+      id: 'qual', title: 'Légzés, keringés, láz, fájdalom', ref: 'MSTR 4. lépés',
+      fields: [
+        { type: 'widget', name: 'respHint' },
+        { type: 'choice', key: 'resp', label: 'Légzési munka', options: [
+          { v: '1', l: lvl(1, 'Súlyos – cianózis, kimerült, beszédképtelen, lélegeztetés-igény') },
+          { v: '2', l: lvl(2, 'Közepes – fokozott munka, rövid mondatok, jelentős stridor') },
+          { v: '3', l: lvl(3, 'Enyhe – csak terhelésre, összefüggő beszéd') },
+          { v: 'none', l: 'Nincs nehézlégzés' }] },
+        { type: 'widget', name: 'circHint' },
+        { type: 'choice', key: 'circ', label: 'Keringési állapot', options: [
+          { v: '1', l: lvl(1, 'Sokk – hipoperfúzió, hipotónia, hűvös bőr, gyenge pulzus') },
+          { v: '2', l: lvl(2, 'Instabil – indokolatlan tahikardia, ortosztázis, ájulásérzés') },
+          { v: '3', l: lvl(3, 'Határérték / eltér a megszokottól') },
+          { v: 'none', l: 'Normál keringés' }] },
+        { type: 'choice', key: 'fever', label: 'Láz megítélése (testhő ≥38 °C) – küllem', when: function (s, r) { return r.v.feverPresent; }, options: [
+          { v: 'immuno', l: lvl(2, 'Immunhiányos / csökkent immunválasz (neutropénia, kemoterápia, szteroid)') },
+          { v: 'septic', l: lvl(2, 'Szeptikus küllem – ≥3 SIRS / instabil / közepes nehézlégzés / módosult tudat') },
+          { v: 'ill', l: lvl(3, 'Súlyos beteg küllem – <3 SIRS') },
+          { v: 'well', l: lvl(4, 'Jó általános állapot – a láz az egyetlen pozitív SIRS') }] },
+        { type: 'note', level: 'info', when: function (s, r) { return !hasPain(s, r); }, html: 'Fájdalom besorolása: nincs VAS-érték felvéve (a vitális paramétereknél adható meg).' },
+        { type: 'choice', key: 'pain.loc', label: 'Fájdalom helye', when: hasPain, options: [
+          { v: 'central', l: 'Centrális (fej, mellkas, has, szem, here)' }, { v: 'periph', l: 'Perifériás (bőr, lágyrész, mozgásszervi)' }] },
+        { type: 'choice', key: 'pain.onset', label: 'Fájdalom jellege', when: hasPain, options: [
+          { v: 'acute', l: 'Heveny (< 1 hónap)' }, { v: 'chronic', l: 'Krónikus' }] },
+        { type: 'widget', name: 'painHint', when: hasPain },
+      ],
+    },
+    {
+      id: 'bleed', title: 'Vérzés, baleseti mechanizmus', ref: 'MSTR 5. lépés',
+      fields: [
+        { type: 'choice', key: 'coag', label: 'Vérzés', options: [
+          { v: '2', l: lvl(2, 'Életet/végtagot veszélyeztető súlyos vérzés (v. alvadászavar / antikoaguláns mellett)') },
+          { v: '3', l: lvl(3, 'Enyhe / közepes vérzés (orrvérzés, ízületi, menstruáció, felszínes seb)') }] },
+        { type: 'check', key: 'moi', label: 'Magas rizikójú mechanizmus (kiesés/átfordulás, >40–60 km/h, >3 m esés, gázolás, áthatoló sérülés törzsön) → 2' },
+      ],
+    },
+    {
+      id: 'secondary', title: 'Másodlagos módosítók', ref: 'MSTR 6. lépés',
+      fields: [
+        { type: 'note', level: 'warn', when: function (s, r) { return r.v.htnHigh; }, html: 'Mért RR ≥220/130 – válaszd ki tünet szerint.' },
+        { type: 'check', key: 'sec.gluc2', label: 'Vércukor: hipo (<3) v. hiper (>18) tünetekkel → 2' },
+        { type: 'check', key: 'sec.gluc3', label: 'Vércukor-eltérés tünet nélkül → 3' },
+        { type: 'check', key: 'sec.htn2', label: 'Magas vérnyomás + tünet → 2' },
+        { type: 'check', key: 'sec.htn3', label: 'Magas vérnyomás tünet nélkül → 3' },
+        { type: 'check', key: 'sec.cp2', label: 'Szív eredetű (v. jelentős) mellkasi fájdalom → 2' },
+        { type: 'check', key: 'sec.cva2', label: 'Stroke / féloldali gyengeség <4,5 óra → 2' },
+        { type: 'check', key: 'sec.cva3', label: 'Stroke >4,5 óra v. megszűntek → 3' },
+        { type: 'check', key: 'sec.dys2', label: 'Nyelésképtelenség nyáladzással, stridorral → 2' },
+        { type: 'check', key: 'sec.deform3', label: 'Végtagsérülés deformitással → 3' },
+        { type: 'check', key: 'sec.dehyd2', label: 'Kiszáradás: közepes → 2' },
+        { type: 'check', key: 'sec.dehyd3', label: 'Kiszáradás: enyhe → 3' },
+      ],
+    },
+    {
+      id: 'dispo', title: 'Felül-triázsolás, diszpozíció', ref: 'MSTR 7–8. lépés',
+      fields: [
+        { type: 'choice', key: 'over', label: 'Ápolói megítélés – felül-triázsolás (ha magasabb kockázatúnak ítéled, mint amit a tényezők adnak)', options: [
+          { v: '1', l: 'Felül → MSTR 1' }, { v: '2', l: 'Felül → MSTR 2' }, { v: '3', l: 'Felül → MSTR 3' }] },
+        { type: 'heading', label: 'Diszpozíció / továbbküldés' },
+        { type: 'check', key: 'fasttrack', label: 'Fast track vizsgálóba kerül' },
+        { type: 'heading', label: 'Konzílium' },
+      ].concat(L.KONZ.map(function (k, i) { return { type: 'check', key: 'konz.' + i, label: k }; })).concat([
+        { type: 'text', key: 'konz.other', label: 'Egyéb konzílium (több is, vesszővel elválasztva)' },
+        { type: 'textarea', key: 'narr', rows: 4, label: 'Esemény leírása – néhány mondatban, mi történt / a triázs észrevételei' },
+      ]),
+    },
+    {
+      id: 'summary', title: 'Jegyzőkönyv', ref: '',
+      fields: [
+        { type: 'widget', name: 'printBar' },
+        { type: 'summary' },
+      ],
+    },
+  ];
+
+  var WIDGETS = {
+    complaintGroup: {
+      render: function () { return ''; },
+      live: function (c) {
+        var v = String(c.state.complaint || '').trim();
+        if (!v) return '';
+        var hit = C.COMPLAINTS.filter(function (x) { return x[1].toLowerCase() === v.toLowerCase(); })[0];
+        return '<p class="muted small">' + (hit ? 'CEDIS-csoport: <b>' + c.esc(hit[0]) + '</b>' : 'Egyéni panasz (nem szerepel a CEDIS-listában).') + '</p>';
+      },
+    },
+    vitalFlags: {
+      render: function () { return ''; },
+      live: function (c) {
+        var v = c.r.v, out = [];
+        if (v.hr !== null && v.hr > 90) out.push('Pulzus >90/min: SIRS +');
+        if (v.rr !== null && v.rr > 20) out.push('Légzésszám >20/min: SIRS +');
+        if (v.htnHigh) out.push('RR ≥220/130: hipertónia – a másodlagos módosítóknál jelölendő');
+        if (v.spo2Level) out.push('SpO₂ ' + v.spo2 + '%: ' + badge(v.spo2Level));
+        if (v.feverPresent) out.push('Testhő ≥38 °C: láz (a küllem a 4. lépésben)');
+        else if (v.temp !== null && v.temp < 36) out.push('Testhő <36 °C: hipotermia, SIRS +');
+        if (v.painSev) out.push('VAS ' + v.pain + ': ' + { severe: 'Súlyos (8–10)', moderate: 'Mérsékelt (4–7)', mild: 'Enyhe (1–3)' }[v.painSev]);
+        if (v.gcs) out.push('GCS ' + v.gcs.total + (v.gcsLevel ? ': ' + badge(v.gcsLevel) : ' (nem emel szintet)'));
+        out.push('SIRS: <b>' + v.sirs + '/4</b>' + (v.sirs >= 3 && v.feverPresent ? ' – szeptikus küllem lehet' : ''));
+        return '<div class="note ' + (v.sirs >= 3 ? 'warn' : 'info') + '">' + out.join('<br>') + '</div>';
+      },
+    },
+    respHint: {
+      render: function () { return ''; },
+      live: function (c) {
+        var v = c.r.v;
+        return '<p class="muted small">' + (v.spo2Level ? 'Szaturáció (' + v.spo2 + '%) → padló MSTR ' + v.spo2Level + '. A légzési munka felfelé írhatja.' : 'A szaturáció támogató; a légzési munka a meghatározó.') + '</p>';
+      },
+    },
+    circHint: {
+      render: function () { return ''; },
+      live: function (c) {
+        var v = c.r.v;
+        return '<p class="muted small">' + (v.hr !== null || v.sys !== null ? 'Mért: P ' + (v.hr === null ? '–' : v.hr) + '/min · RR ' + (v.sys === null ? '–' : v.sys) + '/' + (v.dia === null ? '–' : v.dia) + ' Hgmm' : 'Bőr, pulzusminőség és a mért értékek együtt.') + '</p>';
+      },
+    },
+    painHint: {
+      render: function () { return ''; },
+      live: function (c) { return c.r.v.painLevel ? '<p>→ Fájdalom alapján: ' + badge(c.r.v.painLevel) + '</p>' : ''; },
+    },
+    printBar: {
+      render: function () {
+        return '<div class="row gap"><button type="button" class="btn primary" data-action="print">Nyomtatás / PDF (triázs lap)</button>' +
+          '<button type="button" class="btn" data-action="download">Letöltés (HTML)</button></div>' +
+          '<p class="muted small">A nyomtatott lap a rögzített adatokból készül, etikett-hellyel és a kötelező figyelmeztetéssel (a lenti szöveg kézi szerkesztése nem kerül rá).</p>';
+      },
+    },
+  };
+
+  function printDoc(s, r) {
+    var w = window.open('', '_blank');
+    if (!w) { alert('A felugró ablak blokkolva van. Engedélyezd, vagy használd a Letöltés gombot.'); return; }
+    w.document.write(D.html(s, r, { autoPrint: true }));
+    w.document.close();
+    w.focus();
+  }
+  function downloadDoc(s, r) {
+    var blob = new Blob([D.html(s, r, { autoPrint: true })], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = D.fileName(s);
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  SBO.register({
+    id: 'triage',
+    title: 'MSTR Triage segéd (felnőtt)',
+    short: 'Triage',
+    description: 'Ötszintű MSTR besorolás: vitális paraméterek, módosítók, felül-triázsolás, nyomtatható triázs lap etikett-hellyel.',
+    icon: 'triage',
+    color: { base: '#14b8a6', ink: '#0f766e', inkDark: '#5eead4' },
+    sop: C.SOP,
+    steps: STEPS,
+    widgets: WIDGETS,
+    evaluate: L.evaluate,
+    stageToStep: { start: 'start', complaint: 'complaint', vitals: 'vitals', qual: 'qual', done: 'summary' },
+    categories: { L1: 'MSTR 1 – ' + LV[1].name, L2: 'MSTR 2 – ' + LV[2].name, L3: 'MSTR 3 – ' + LV[3].name, L4: 'MSTR 4 – ' + LV[4].name, L5: 'MSTR 5 – ' + LV[5].name },
+    dangerCategories: ['L1', 'L2'],
+    categoryLabel: 'JAVASOLT TRIÁZS SZINT',
+    // A döntési panel teteje: színes MSTR-sáv (a prototípus „Javasolt triázs szint” sávja) + kötelező figyelmeztetés
+    panelTop: function (r) {
+      var html = r.level
+        ? '<div class="mstr-banner l' + r.level + '"><small>Javasolt triázs szint</small><b>MSTR ' + r.level + ' · ' + LV[r.level].name + '</b>' +
+          '<span>Újraértékelés: ' + LV[r.level].reassess + '</span>' + (r.driver ? '<span>Meghatározó: ' + esc(r.driver.label) + '</span>' : '') + '</div>'
+        : '<div class="mstr-banner none">Vidd fel a paramétereket – a rendszer a legsúlyosabb szintet jelzi.</div>';
+      return html + '<div class="note warn">⚠ ' + WARNING + '</div>';
+    },
+    actions: {
+      now: function (s) { s.time = D.nowLocal(); },
+      print: printDoc,
+      download: downloadDoc,
+    },
+    docSections: D.sections,
+    reportFindings: function (s, r) {
+      return ['Vezető panasz: ' + (s.complaint || '___'), 'Javasolt szint: ' + (r.level ? 'MSTR ' + r.level + ' – ' + LV[r.level].name + ' (újraértékelés: ' + LV[r.level].reassess + ')' : 'nincs megállapítva')];
+    },
+    reference: function () { return C.REFERENCE; },
+  });
+})();
+
+</script>
   <!-- A motor indítása a modulok után -->
   <script>
 /*
@@ -3896,8 +4494,12 @@ code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
       case 'choice': return radios(f.key, f.options, f.label);
       case 'check':
         return '<label class="check"><input type="checkbox" data-key="' + esc(f.key) + '"' + (state[f.key] ? ' checked' : '') + '> ' + esc(f.label) + '</label>';
-      case 'text':
-        return '<label class="field"><span>' + esc(f.label) + '</span><input type="text" data-key="' + esc(f.key) + '" value="' + esc(state[f.key]) + '"></label>';
+      case 'text': {
+        var dl = f.list ? 'dl_' + f.key.replace(/\W/g, '_') : '';
+        return '<label class="field"><span>' + esc(f.label) + '</span><input type="' + (f.input || 'text') + '" data-key="' + esc(f.key) + '" value="' + esc(state[f.key]) + '"' +
+          (dl ? ' list="' + dl + '" autocomplete="off"' : '') + '></label>' +
+          (dl ? '<datalist id="' + dl + '">' + f.list.map(function (o) { return '<option value="' + esc(o.v) + '"' + (o.l ? ' label="' + esc(o.l) + '"' : '') + '>'; }).join('') + '</datalist>' : '');
+      }
       case 'textarea':
         return '<label class="field"><span>' + esc(f.label) + '</span><textarea data-key="' + esc(f.key) + '" rows="' + (f.rows || 3) + '">' + esc(state[f.key]) + '</textarea></label>';
       case 'num':
@@ -3938,7 +4540,7 @@ code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
     lines.push('DÖNTÉSI ÚT:');
     r.path.forEach(function (p) { lines.push('- ' + p); });
     lines.push('');
-    lines.push('CSOPORTDIAGNÓZIS: ' + (r.category ? P.categories[r.category] : 'még nem meghatározott'));
+    lines.push((P.categoryLabel || 'CSOPORTDIAGNÓZIS') + ': ' + (r.category ? P.categories[r.category] : 'még nem meghatározott'));
     var list = function (title, arr, withRef) {
       if (!arr || !arr.length) return;
       lines.push(title + ':');
@@ -3980,7 +4582,8 @@ code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
   /* ---------------------------------------------------------------- */
   function renderPanel(r) {
     var danger = (P.dangerCategories || []).indexOf(r.category) >= 0;
-    var html = '<div class="cat ' + (r.category ? (danger ? 'danger' : '') : 'none') + '">' + (r.category ? esc(P.categories[r.category]) : 'Besorolás folyamatban…') + '</div>';
+    // panelTop: a modul saját jelzősávja a panel tetején; ilyenkor ez helyettesíti a kategória-dobozt
+    var html = P.panelTop ? P.panelTop(r) : '<div class="cat ' + (r.category ? (danger ? 'danger' : '') : 'none') + '">' + (r.category ? esc(P.categories[r.category]) : 'Besorolás folyamatban…') + '</div>';
     if (r.path.length) html += '<h4>Döntési út</h4><ol class="path">' + r.path.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ol>';
     if (r.alerts.length) html += r.alerts.map(function (a) { return '<div class="note ' + a.level + '">' + esc(a.text) + ' <span class="ref">' + esc(a.ref) + '</span></div>'; }).join('');
     var list = function (title, arr) {
@@ -4191,8 +4794,14 @@ code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
   }
 
   document.addEventListener('click', function (e) {
-    var t = e.target.closest ? e.target.closest('[data-open],[data-goto],[data-clear],[data-goto-ref],[data-copy],[data-copy-all],#regenEpi,#viewHome,#viewExam,#viewRef,#reset') : null;
+    var t = e.target.closest ? e.target.closest('[data-action],[data-open],[data-goto],[data-clear],[data-goto-ref],[data-copy],[data-copy-all],#regenEpi,#viewHome,#viewExam,#viewRef,#reset') : null;
     if (!t) return;
+    // Modul-specifikus gombok (pl. nyomtatás): P.actions[név](state, evaluate()), utána újrarajzolás
+    if (t.hasAttribute('data-action')) {
+      var act = P && P.actions && P.actions[t.getAttribute('data-action')];
+      if (act) { act(state, evaluate()); render(); }
+      return;
+    }
     if (t.hasAttribute('data-open')) { go('#/' + t.getAttribute('data-open')); return; }
     if (t.hasAttribute('data-goto')) { current = t.getAttribute('data-goto'); if (view !== 'exam') go('#/' + P.id); else render(); window.scrollTo(0, 0); return; }
     if (t.hasAttribute('data-clear')) { delete state[t.getAttribute('data-clear')]; render(); return; }

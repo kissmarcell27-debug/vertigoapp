@@ -9,6 +9,7 @@ a kezdőlapon választható ki, melyik szerint vizsgálja a beteget. Mindegyikhe
 | 14 | Szédüléssel jelentkező beteg ellátása | `protocols/szedules/` | ÉPC-HK SBO, v1.0 (2023.09.01.) – **érvényessége 2025.12.31-én lejárt** |
 | 5 | Syncope eljárásrend | `protocols/syncope/` | ÉPC-HK SBC, v1.0 (2026.02.10.) – érvényes 2027.01.01-ig |
 | 17 | Intracranialis vérzések sürgősségi kezelése (fejsérülés, IC vérzés) | `protocols/fejserules/` | ÉPC-HK SBC, v1.0 (2024.04.25.) – **érvényessége 2025.12.31-én lejárt** |
+| – | MSTR Triage segéd (felnőtt) | `protocols/triage/` | Magyar Sürgősségi Triázs Rendszer (CTAS-adaptáció); az SBC Portál prototípusából átemelve, specifikáció: [`docs/mstr-triage-logika.md`](docs/mstr-triage-logika.md) |
 
 Új eljárásrend hozzáadása: [`docs/UJ_ELJARASREND.md`](docs/UJ_ELJARASREND.md) (sablon: `protocols/_sablon/`).
 
@@ -125,6 +126,23 @@ Ahol a modul túlmegy az SOP szövegén, a felület jelzi:
 - **INR = 1,4:** az SOP csak az „1,4 felett / alatt” esetet definiálja, ilyenkor a biztonságosabb utat javasolja.
 - **NOAC:** a hatását az INR nem tükrözi megbízhatóan.
 - **Antikoagulált beteg tájékoztatója:** a „vérhígítót ne szedjen” tanács helyett egyedi döntés kell.
+
+### MSTR Triage modul (az SBC Portálból)
+
+Az SBC Portál (`sbc-portal`) React-prototípusának triázs-modulja, a közös motorra átírva. A besorolási logika, a küszöbök
+és a színek **változatlanok** (`protocols/triage/logic.js`, specifikáció: `docs/mstr-triage-logika.md`): minden rögzített
+tényező egy javasolt szintet ad, a végeredmény a legsúlyosabb (legkisebb számú) szint. Lépések: felvétel és elsődleges
+megtekintés (azonnali beavatkozás → MSTR 1, fertőzésszűrés) → vezető panasz (72 CEDIS-panasz javaslatlistával, egyéni is
+megadható) → vitális paraméterek (SpO₂- és GCS-szint, SIRS-számláló élőben) → légzés, keringés, láz (≥38 °C-nál), fájdalom
+(VAS × hely × jelleg) → vérzés, baleseti mechanizmus → másodlagos módosítók → felül-triázsolás, fast track, konzílium,
+esemény leírása → jegyzőkönyv. A panel tetején a színes MSTR-sáv (újraértékelési idő, meghatározó tényező) és a kötelező
+figyelmeztetés látszik.
+
+A jegyzőkönyv szövege a prototípuséval azonos formátumú (másolható); a nyomtatható / letölthető lap etikett-hellyel
+(6×3 cm, betegazonosító nem kerül rögzítésre) és a kötelező figyelmeztetéssel készül. Tesztek: `tests/triage/` (minden küszöb határértéke).
+
+**A portál beosztás-moduljai nem kerültek át:** a portál saját leírása szerint valós kollégák neveit tartalmazzák, és csak
+privát repóban tárolhatók; ez a repó nyilvános. Nem implementált (a portálban sem): gyermek MSTR protokoll.
 
 ## Ikoncsomag
 

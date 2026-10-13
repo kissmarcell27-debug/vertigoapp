@@ -51,8 +51,12 @@
       case 'choice': return radios(f.key, f.options, f.label);
       case 'check':
         return '<label class="check"><input type="checkbox" data-key="' + esc(f.key) + '"' + (state[f.key] ? ' checked' : '') + '> ' + esc(f.label) + '</label>';
-      case 'text':
-        return '<label class="field"><span>' + esc(f.label) + '</span><input type="text" data-key="' + esc(f.key) + '" value="' + esc(state[f.key]) + '"></label>';
+      case 'text': {
+        var dl = f.list ? 'dl_' + f.key.replace(/\W/g, '_') : '';
+        return '<label class="field"><span>' + esc(f.label) + '</span><input type="' + (f.input || 'text') + '" data-key="' + esc(f.key) + '" value="' + esc(state[f.key]) + '"' +
+          (dl ? ' list="' + dl + '" autocomplete="off"' : '') + '></label>' +
+          (dl ? '<datalist id="' + dl + '">' + f.list.map(function (o) { return '<option value="' + esc(o.v) + '"' + (o.l ? ' label="' + esc(o.l) + '"' : '') + '>'; }).join('') + '</datalist>' : '');
+      }
       case 'textarea':
         return '<label class="field"><span>' + esc(f.label) + '</span><textarea data-key="' + esc(f.key) + '" rows="' + (f.rows || 3) + '">' + esc(state[f.key]) + '</textarea></label>';
       case 'num':
@@ -93,7 +97,7 @@
     lines.push('DÖNTÉSI ÚT:');
     r.path.forEach(function (p) { lines.push('- ' + p); });
     lines.push('');
-    lines.push('CSOPORTDIAGNÓZIS: ' + (r.category ? P.categories[r.category] : 'még nem meghatározott'));
+    lines.push((P.categoryLabel || 'CSOPORTDIAGNÓZIS') + ': ' + (r.category ? P.categories[r.category] : 'még nem meghatározott'));
     var list = function (title, arr, withRef) {
       if (!arr || !arr.length) return;
       lines.push(title + ':');
@@ -135,7 +139,8 @@
   /* ---------------------------------------------------------------- */
   function renderPanel(r) {
     var danger = (P.dangerCategories || []).indexOf(r.category) >= 0;
-    var html = '<div class="cat ' + (r.category ? (danger ? 'danger' : '') : 'none') + '">' + (r.category ? esc(P.categories[r.category]) : 'Besorolás folyamatban…') + '</div>';
+    // panelTop: a modul saját jelzősávja a panel tetején; ilyenkor ez helyettesíti a kategória-dobozt
+    var html = P.panelTop ? P.panelTop(r) : '<div class="cat ' + (r.category ? (danger ? 'danger' : '') : 'none') + '">' + (r.category ? esc(P.categories[r.category]) : 'Besorolás folyamatban…') + '</div>';
     if (r.path.length) html += '<h4>Döntési út</h4><ol class="path">' + r.path.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ol>';
     if (r.alerts.length) html += r.alerts.map(function (a) { return '<div class="note ' + a.level + '">' + esc(a.text) + ' <span class="ref">' + esc(a.ref) + '</span></div>'; }).join('');
     var list = function (title, arr) {
@@ -346,8 +351,14 @@
   }
 
   document.addEventListener('click', function (e) {
-    var t = e.target.closest ? e.target.closest('[data-open],[data-goto],[data-clear],[data-goto-ref],[data-copy],[data-copy-all],#regenEpi,#viewHome,#viewExam,#viewRef,#reset') : null;
+    var t = e.target.closest ? e.target.closest('[data-action],[data-open],[data-goto],[data-clear],[data-goto-ref],[data-copy],[data-copy-all],#regenEpi,#viewHome,#viewExam,#viewRef,#reset') : null;
     if (!t) return;
+    // Modul-specifikus gombok (pl. nyomtatás): P.actions[név](state, evaluate()), utána újrarajzolás
+    if (t.hasAttribute('data-action')) {
+      var act = P && P.actions && P.actions[t.getAttribute('data-action')];
+      if (act) { act(state, evaluate()); render(); }
+      return;
+    }
     if (t.hasAttribute('data-open')) { go('#/' + t.getAttribute('data-open')); return; }
     if (t.hasAttribute('data-goto')) { current = t.getAttribute('data-goto'); if (view !== 'exam') go('#/' + P.id); else render(); window.scrollTo(0, 0); return; }
     if (t.hasAttribute('data-clear')) { delete state[t.getAttribute('data-clear')]; render(); return; }

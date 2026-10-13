@@ -302,3 +302,17 @@ code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
 .pbadge.proto { color: #1a1a1a; }
 .pcard .pnum { width: 46px; height: 46px; }
 .psop { font-style: normal; font-size: 12px; font-weight: 700; color: var(--p-ink-use); letter-spacing: .02em; }
+
+/* MSTR triázs szintek (színjelentés: 1 piros, 2 narancs, 3 sárga, 4 zöld, 5 kék – ne változtasd) */
+.mstr { display: inline-block; min-width: 2.2em; padding: 1px 8px; border-radius: 10px; font-weight: 700; text-align: center; color: #fff; }
+.mstr.l1, .mstr-banner.l1 { background: #dc2626; color: #fff; }
+.mstr.l2, .mstr-banner.l2 { background: #f97316; color: #fff; }
+.mstr.l3, .mstr-banner.l3 { background: #facc15; color: #1a1a00; }
+.mstr.l4, .mstr-banner.l4 { background: #16a34a; color: #fff; }
+.mstr.l5, .mstr-banner.l5 { background: #1e3a8a; color: #fff; }
+.mstr-banner { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: 10px; margin-bottom: 10px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+.mstr-banner small { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; opacity: .85; }
+.mstr-banner b { font-size: 20px; line-height: 1.2; }
+.mstr-banner span { font-size: 13px; opacity: .95; }
+.mstr-banner.none { background: transparent; border: 1px dashed var(--line); color: var(--muted); text-align: center; box-shadow: none; font-size: 14px; }
+@media print { .mstr, .mstr-banner { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }

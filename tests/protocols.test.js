@@ -36,6 +36,8 @@ for (const p of SBO.protocols) {
     for (const k of ['title', 'short']) assert.ok(p[k], `hiányzik: ${k}`);
     for (const k of ['title', 'issuer', 'version']) assert.ok(p.sop[k], `hiányzik: sop.${k}`);
     if (p.sop.validUntil) assert.match(p.sop.validUntil, /^\d{4}-\d{2}-\d{2}$/);
+    if (p.actions) for (const [k, fn] of Object.entries(p.actions)) assert.equal(typeof fn, 'function', `actions.${k} függvény kell legyen`);
+    if (p.panelTop) assert.equal(typeof p.panelTop(p.evaluate({})), 'string', 'panelTop HTML-szöveget ad');
     if (p.icon) assert.ok(sandbox.SBO.icons.names.includes(p.icon), `ismeretlen ikon: ${p.icon}`);
 
     const ids = p.steps.map((s) => s.id);
@@ -47,6 +49,7 @@ for (const p of SBO.protocols) {
       for (const f of st.fields) {
         assert.ok(FIELD_TYPES.includes(f.type), `${st.id}: ismeretlen mezőtípus: ${f.type}`);
         if (['yn', 'choice', 'check', 'text', 'textarea', 'num'].includes(f.type)) assert.ok(f.key, `${st.id}: hiányzó key`);
+        if (f.list) assert.ok(f.type === 'text' && f.list.every((o) => o.v), `${st.id}/${f.key}: list csak text mezőn, {v,l} elemekkel`);
         if (f.type === 'choice') assert.ok(Array.isArray(f.options) && f.options.length, `${st.id}/${f.key}: nincs opció`);
         if (f.type === 'widget') assert.ok(p.widgets && p.widgets[f.name] && typeof p.widgets[f.name].render === 'function', `${st.id}: hiányzó widget: ${f.name}`);
         if (f.type === 'illus') assert.ok(p.illustrations && p.illustrations.get(f.name), `${st.id}: hiányzó ábra: ${f.name}`);

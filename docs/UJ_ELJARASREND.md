@@ -40,10 +40,14 @@ referencia fület és a kezdőlapi listát. A modul csak az adott SOP tartalmát
 | `docSections(state, r)` | | Ambuláns lap részei: `[{ id, title, text }]` |
 | `reportFindings(state, r)` | | A strukturált összegzés protokollspecifikus sorai: `[string]` |
 | `reference(esc)` | | Referencia fül: `[{ id, title, html }]` |
+| `panelTop(r)` | | Saját HTML a döntési panel tetején (pl. a triage színes MSTR-sávja). Ha meg van adva, ez helyettesíti a kategória-dobozt. |
+| `actions` | | Saját gombok: `{ név: function (state, r) }`; a felületen `<button data-action="név">`. Lefutás után a motor újrarajzol. (Pl. nyomtatás, „Most” időpont.) |
+| `categoryLabel` | | A kategória címkéje a strukturált összegzésben (alapértelmezés: `CSOPORTDIAGNÓZIS`) |
 
 ### Mezőtípusok
 
-`yn` (Igen/Nem), `choice` (`options: [{v, l}]`), `check`, `text`, `textarea`, `num`, `num2` (`keys: [a, b]`, `ph`),
+`yn` (Igen/Nem), `choice` (`options: [{v, l}]`), `check`, `text` (opcionálisan `input: 'datetime-local'` stb. és
+`list: [{v, l}]` gépelés közbeni javaslatlistához), `textarea`, `num`, `num2` (`keys: [a, b]`, `ph`),
 `heading`, `note` (`level: info|warn|danger|ok`, `html`), `illus`, `widget`, `summary`.
 Bármely mezőhöz megadható egy `when(state, r)` feltétel.
 
